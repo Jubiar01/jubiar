@@ -18,20 +18,16 @@ const CONFIG = {
         updatePresence: true        // Maintain online presence
     },
     
-    // Auto Cookie Refresh Settings
-    cookieRefresh: {
-        enabled: true,              // Enable auto cookie refresh
-        interval: 30 * 60 * 1000,   // Check every 30 minutes
-        saveOnChange: true          // Auto-save appstate when cookies change
+    // Built-in Keep-Alive System (v3.6.6+)
+    keepAlive: {
+        enabled: true,              // Enable built-in keep-alive (cookie refresh + MQTT pings)
+        cookieRefreshInterval: 20 * 60 * 1000,  // Cookie refresh every 20 minutes (default)
+        // MQTT keep-alive happens automatically every 30 seconds
     }
 };
 
 // Command storage
 const commands = new Map();
-
-// Cookie refresh tracking
-let lastCookieCheck = Date.now();
-let cookieRefreshCount = 0;
 
 // Load all commands from cmd folder
 function loadCommands() {
@@ -65,52 +61,47 @@ function loadCommands() {
     }
 }
 
-// Auto Cookie Refresh Function
-function setupCookieRefresh(api) {
-    console.log('🔄 Auto Cookie Refresh: Enabled');
-    console.log(`   • Check interval: ${CONFIG.cookieRefresh.interval / 1000 / 60} minutes\n`);
+// Monitor Keep-Alive System (v3.6.6+)
+function monitorKeepAliveSystem(api) {
+    console.log('📊 Keep-Alive Monitoring: Started\n');
     
+    // Log stats every 10 minutes
     setInterval(() => {
         try {
-            // Get current appstate
-            const currentAppState = api.getAppState();
-            
-            if (currentAppState && currentAppState.length > 0) {
-                // Save updated appstate
-                fs.writeFileSync(
-                    CONFIG.appStatePath, 
-                    JSON.stringify(currentAppState, null, 2), 
-                    'utf8'
-                );
-                
-                cookieRefreshCount++;
+            // Get keep-alive statistics
+            if (typeof api.getCookieRefreshStats === 'function') {
+                const stats = api.getCookieRefreshStats();
                 const now = new Date().toLocaleTimeString();
-                console.log(`🍪 [${now}] Cookie refresh #${cookieRefreshCount} - AppState updated`);
                 
-                // Check protection stats if available
-                if (typeof api.getProtectionStats === 'function') {
-                    const stats = api.getProtectionStats();
-                    const uptime = Math.floor(stats.uptime / 1000 / 60); // Convert to minutes
-                    console.log(`   • Requests: ${stats.requests} | Uptime: ${uptime}m`);
-                }
+                console.log(`\n📊 [${now}] Keep-Alive System Status:`);
+                console.log(`   Cookie Refresh:`);
+                console.log(`     • Total refreshes: ${stats.refreshCount}`);
+                console.log(`     • Failures: ${stats.failureCount}`);
+                console.log(`     • Last refresh: ${Math.floor(stats.timeSinceLastRefresh / 60000)}m ago`);
+                
+                console.log(`   MQTT Keep-Alive:`);
+                console.log(`     • Total pings: ${stats.mqttKeepAlive.pingCount}`);
+                console.log(`     • Failures: ${stats.mqttKeepAlive.pingFailures}`);
+                console.log(`     • Last ping: ${Math.floor(stats.mqttKeepAlive.timeSinceLastPing / 1000)}s ago`);
+                
+                // Calculate total uptime
+                const uptimeMinutes = Math.floor(stats.timeSinceLastRefresh / 60000);
+                const uptimeHours = (uptimeMinutes / 60).toFixed(1);
+                console.log(`   • Bot Uptime: ${uptimeHours}h (${uptimeMinutes}m)`);
+            }
+            
+            // Get protection statistics
+            if (typeof api.getProtectionStats === 'function') {
+                const protectionStats = api.getProtectionStats();
+                const uptime = Math.floor(protectionStats.uptime / 1000 / 60);
+                const uptimeHours = (uptime / 60).toFixed(1);
+                console.log(`   • Requests Made: ${protectionStats.requests}`);
+                console.log(`   • Session Uptime: ${uptimeHours}h`);
             }
         } catch (error) {
-            console.error('❌ Cookie refresh error:', error.message);
+            console.error('❌ Error getting stats:', error.message);
         }
-    }, CONFIG.cookieRefresh.interval);
-}
-
-// Monitor Protection Stats (Optional)
-function monitorProtectionStats(api) {
-    setInterval(() => {
-        if (typeof api.getProtectionStats === 'function') {
-            const stats = api.getProtectionStats();
-            const uptime = Math.floor(stats.uptime / 1000 / 60); // Minutes
-            const uptimeHours = (uptime / 60).toFixed(1);
-            
-            console.log(`📊 Protection Stats: Requests: ${stats.requests} | Uptime: ${uptimeHours}h`);
-        }
-    }, 60 * 60 * 1000); // Log every hour
+    }, 10 * 60 * 1000); // Log every 10 minutes
 }
 
 // Handle incoming messages
@@ -169,7 +160,7 @@ function startBot() {
     console.log('\n🔐 Logging in to Facebook with Advanced Protection...');
     
     login({ appState }, {
-        // Advanced Protection Options (NEW in v3.6.2+)
+        // Advanced Protection Options (v3.6.2+)
         advancedProtection: CONFIG.protection.enabled,
         autoRotateSession: CONFIG.protection.autoRotateSession,
         randomUserAgent: CONFIG.protection.randomUserAgent,
@@ -178,6 +169,10 @@ function startBot() {
         updatePresence: CONFIG.protection.updatePresence,
         autoMarkDelivery: CONFIG.protection.autoMarkDelivery,
         autoMarkRead: CONFIG.protection.autoMarkRead,
+        
+        // Built-in Keep-Alive System (v3.6.6+)
+        cookieRefresh: CONFIG.keepAlive.enabled,              // Enable cookie refresh + MQTT keep-alive
+        cookieRefreshInterval: CONFIG.keepAlive.cookieRefreshInterval, // 20 minutes default
         
         // General Options
         listenEvents: true,
@@ -200,16 +195,21 @@ function startBot() {
             console.log(`   • Session ID: ${protectionStats.sessionID?.substring(0, 20)}...`);
             console.log(`   • Device ID: ${protectionStats.deviceID}`);
             console.log(`   • Requests: ${protectionStats.requests || 0}`);
+            
+            // Display Cookie Refresh Stats (v3.6.6+)
+            if (protectionStats.cookieRefresh) {
+                console.log('');
+                console.log('🔄 Keep-Alive System:');
+                console.log(`   • Cookie Refresh: ${protectionStats.cookieRefresh.enabled ? '✅ Enabled' : '❌ Disabled'}`);
+                console.log(`   • MQTT Keep-Alive: ${protectionStats.cookieRefresh.mqttKeepAlive?.enabled ? '✅ Enabled' : '❌ Disabled'}`);
+            }
             console.log('');
         }
         
-        // Setup Auto Cookie Refresh
-        if (CONFIG.cookieRefresh.enabled) {
-            setupCookieRefresh(api);
+        // Start Keep-Alive System Monitoring (v3.6.6+)
+        if (CONFIG.keepAlive.enabled) {
+            monitorKeepAliveSystem(api);
         }
-        
-        // Start Protection Stats Monitoring
-        monitorProtectionStats(api);
         
         // Listen for messages
         console.log('👂 Listening for messages...\n');
