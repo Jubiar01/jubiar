@@ -1,0 +1,24 @@
+{
+  "name": "jubiar-bot",
+  "version": "1.0.0",
+  "description": "Facebook Messenger Bot using biar-fca",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js"
+  },
+  "keywords": [
+    "facebook",
+    "messenger",
+    "bot",
+    "biar-fca"
+  ],
+  "author": "Jubiar",
+  "license": "MIT",
+  "dependencies": {
+    "biar-fca": "^3.6.4"
+  },
+  "engines": {
+    "node": ">=22.x"
+  }
+}
