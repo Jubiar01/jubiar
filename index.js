@@ -1,10 +1,22 @@
 const fs = require('fs');
 const path = require('path');
-const { login } = require('biar-fca');
+const express = require('express');
+const { login, BotManager } = require('biar-fca');
 
 // Configuration
 const CONFIG = {
+    // Mode: 'single' or 'multi' (auto-detected)
+    mode: null,
+    
+    // Single bot mode
     appStatePath: path.join(__dirname, 'appstate.json'),
+    
+    // Multi-bot mode
+    port: 3000,
+    botsDir: path.join(__dirname, 'bots'),
+    commandsDir: path.join(__dirname, 'cmd'),
+    
+    // Common settings
     prefix: '', // Command prefix
     adminID: [], // Add admin user IDs here if needed
     
@@ -29,9 +41,44 @@ const CONFIG = {
 // Command storage
 const commands = new Map();
 
+// Bot Manager (for multi-bot mode)
+let manager = null;
+
+// Express app (for multi-bot mode)
+let app = null;
+
+// Detect mode (single or multi)
+function detectMode() {
+    const botsDir = CONFIG.botsDir;
+    const hasBotsDir = fs.existsSync(botsDir);
+    const hasAppState = fs.existsSync(CONFIG.appStatePath);
+    
+    if (hasBotsDir) {
+        const botFiles = fs.readdirSync(botsDir).filter(f => f.endsWith('.json'));
+        if (botFiles.length > 0) {
+            CONFIG.mode = 'multi';
+            console.log('🤖 Mode: Multi-Bot (detected bot configurations in bots/)');
+            return;
+        }
+    }
+    
+    if (hasAppState) {
+        CONFIG.mode = 'single';
+        console.log('🤖 Mode: Single-Bot (using appstate.json)');
+        return;
+    }
+    
+    // Default to multi-bot mode and create directory
+    CONFIG.mode = 'multi';
+    if (!fs.existsSync(botsDir)) {
+        fs.mkdirSync(botsDir, { recursive: true });
+    }
+    console.log('🤖 Mode: Multi-Bot (no bots configured yet)');
+}
+
 // Load all commands from cmd folder
 function loadCommands() {
-    const cmdPath = path.join(__dirname, 'cmd');
+    const cmdPath = CONFIG.commandsDir;
     
     try {
         const files = fs.readdirSync(cmdPath).filter(file => file.endsWith('.js'));
@@ -55,7 +102,7 @@ function loadCommands() {
             }
         }
         
-        console.log(`\n📦 Total commands loaded: ${commands.size}`);
+        console.log(`\n📦 Total commands loaded: ${commands.size}\n`);
     } catch (error) {
         console.error('Error reading cmd folder:', error.message);
     }
@@ -104,7 +151,7 @@ function monitorKeepAliveSystem(api) {
     }, 10 * 60 * 1000); // Log every 10 minutes
 }
 
-// Handle incoming messages
+// Handle incoming messages (single-bot mode)
 function handleMessage(api, event) {
     const { body, threadID, messageID, senderID } = event;
     
@@ -133,17 +180,47 @@ function handleMessage(api, event) {
     }
 }
 
-// Main function
-function startBot() {
-    console.log('🤖 Starting Jubiar Bot...\n');
+// Handle incoming messages (multi-bot mode)
+function handleMessageMulti(botId, bot, event) {
+    const { body, threadID, messageID, senderID } = event;
     
-    // Load commands
-    loadCommands();
+    if (!body || typeof body !== 'string') return;
+    
+    // Check if message starts with prefix
+    if (!body.startsWith(CONFIG.prefix)) return;
+    
+    // Parse command and arguments
+    const args = body.slice(CONFIG.prefix.length).trim().split(/ +/);
+    const commandName = args.shift().toLowerCase();
+    
+    // Find command
+    const command = commands.get(commandName);
+    
+    if (!command) return;
+    
+    try {
+        console.log(`⚡ [${botId}] Command: ${commandName} | User: ${senderID} | Thread: ${threadID}`);
+        
+        // Execute command with bot API
+        command.execute(bot.api, event, args, CONFIG);
+    } catch (error) {
+        console.error(`[${botId}] Error executing command ${commandName}:`, error);
+        bot.api.sendMessage(`❌ Error: ${error.message}`, threadID, messageID);
+    }
+}
+
+// ============================================
+// SINGLE-BOT MODE
+// ============================================
+
+function startSingleBot() {
+    console.log('📱 Starting Single-Bot Mode...\n');
     
     // Check if appstate exists
     if (!fs.existsSync(CONFIG.appStatePath)) {
         console.error(`\n❌ Error: appstate.json not found at ${CONFIG.appStatePath}`);
         console.log('Please create an appstate.json file first.');
+        console.log('Or create bots/ directory with bot configurations for multi-bot mode.');
         process.exit(1);
     }
     
@@ -156,25 +233,18 @@ function startBot() {
         process.exit(1);
     }
     
-    // Login to Facebook with Advanced Protection
-    console.log('\n🔐 Logging in to Facebook with Advanced Protection...');
+    // Login to Facebook
+    console.log('🔐 Logging in to Facebook...');
     
     login({ appState }, {
-        // Advanced Protection Options (v3.6.2+)
         advancedProtection: CONFIG.protection.enabled,
         autoRotateSession: CONFIG.protection.autoRotateSession,
         randomUserAgent: CONFIG.protection.randomUserAgent,
-        
-        // Realistic Behavior Options
         updatePresence: CONFIG.protection.updatePresence,
         autoMarkDelivery: CONFIG.protection.autoMarkDelivery,
         autoMarkRead: CONFIG.protection.autoMarkRead,
-        
-        // Built-in Keep-Alive System (v3.6.6+)
-        cookieRefresh: CONFIG.keepAlive.enabled,              // Enable cookie refresh + MQTT keep-alive
-        cookieRefreshInterval: CONFIG.keepAlive.cookieRefreshInterval, // 20 minutes default
-        
-        // General Options
+        cookieRefresh: CONFIG.keepAlive.enabled,
+        cookieRefreshInterval: CONFIG.keepAlive.cookieRefreshInterval,
         listenEvents: true,
         logLevel: 'silent',
         selfListen: false,
@@ -187,26 +257,14 @@ function startBot() {
         
         console.log('✅ Login successful!\n');
         
-        // Display Protection Status
+        // Display status
         if (typeof api.getProtectionStats === 'function') {
-            const protectionStats = api.getProtectionStats();
-            console.log('🛡️  Protection Status:');
-            console.log(`   • Enabled: ${protectionStats.enabled ? '✅ Yes' : '❌ No'}`);
-            console.log(`   • Session ID: ${protectionStats.sessionID?.substring(0, 20)}...`);
-            console.log(`   • Device ID: ${protectionStats.deviceID}`);
-            console.log(`   • Requests: ${protectionStats.requests || 0}`);
-            
-            // Display Cookie Refresh Stats (v3.6.6+)
-            if (protectionStats.cookieRefresh) {
-                console.log('');
-                console.log('🔄 Keep-Alive System:');
-                console.log(`   • Cookie Refresh: ${protectionStats.cookieRefresh.enabled ? '✅ Enabled' : '❌ Disabled'}`);
-                console.log(`   • MQTT Keep-Alive: ${protectionStats.cookieRefresh.mqttKeepAlive?.enabled ? '✅ Enabled' : '❌ Disabled'}`);
-            }
-            console.log('');
+            const stats = api.getProtectionStats();
+            console.log('🛡️  Protection Status: ✅ Enabled');
+            console.log('🔄 Keep-Alive System: ✅ Active\n');
         }
         
-        // Start Keep-Alive System Monitoring (v3.6.6+)
+        // Monitor keep-alive
         if (CONFIG.keepAlive.enabled) {
             monitorKeepAliveSystem(api);
         }
@@ -220,27 +278,253 @@ function startBot() {
                 return;
             }
             
-            // Handle different event types
-            switch (event.type) {
-                case 'message':
-                case 'message_reply':
-                    handleMessage(api, event);
-                    break;
-                
-                default:
-                    // Other event types can be handled here
-                    break;
+            if (event.type === 'message' || event.type === 'message_reply') {
+                handleMessage(api, event);
             }
         });
     });
 }
 
-// Start the bot
-startBot();
+// ============================================
+// MULTI-BOT MODE
+// ============================================
+
+async function loadBots() {
+    console.log('📂 Loading bots from directory...\n');
+    
+    try {
+        const files = fs.readdirSync(CONFIG.botsDir);
+        let loaded = 0;
+        
+        for (const file of files) {
+            if (!file.endsWith('.json')) continue;
+            
+            const botId = path.basename(file, '.json');
+            const filePath = path.join(CONFIG.botsDir, file);
+            
+            try {
+                const appState = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+                console.log(`🔄 Loading bot: ${botId}...`);
+                await manager.addBot(botId, { appState });
+                loaded++;
+            } catch (error) {
+                console.error(`❌ Failed to load bot ${botId}:`, error.message);
+            }
+        }
+        
+        if (loaded === 0) {
+            console.log('\n⚠️  No bots loaded. Add bots via web interface at http://localhost:' + CONFIG.port);
+        }
+    } catch (error) {
+        console.error('Error reading bots directory:', error.message);
+    }
+}
+
+function setupMultiBotEvents() {
+    manager.on('botAdded', ({ botId, userID }) => {
+        console.log(`✅ Bot "${botId}" (${userID}) is now online`);
+    });
+    
+    manager.on('botRemoved', ({ botId }) => {
+        console.log(`🗑️  Bot "${botId}" removed`);
+    });
+    
+    manager.on('botError', ({ botId, error }) => {
+        console.error(`❌ Bot "${botId}" error:`, error.message);
+    });
+    
+    manager.on('message', ({ botId, bot, event }) => {
+        handleMessageMulti(botId, bot, event);
+    });
+    
+    manager.on('error', ({ botId, error }) => {
+        console.error(`⚠️  Error from bot "${botId}":`, error.message);
+    });
+}
+
+function setupWebInterface() {
+    app = express();
+    app.use(express.json());
+    app.use(express.static(path.join(__dirname, 'public')));
+    
+    // API Routes
+    app.get('/api/bots', (req, res) => {
+        const bots = manager.getAllBots().map(bot => ({
+            id: bot.id,
+            userID: bot.userID,
+            status: bot.status,
+            stats: bot.stats,
+            uptime: Date.now() - bot.stats.startTime
+        }));
+        res.json({ success: true, bots });
+    });
+    
+    app.get('/api/stats', (req, res) => {
+        const stats = manager.getStats();
+        res.json({ success: true, stats });
+    });
+    
+    app.get('/api/health', (req, res) => {
+        const health = manager.getHealthStatus();
+        res.json({ success: true, health });
+    });
+    
+    app.post('/api/bots', async (req, res) => {
+        try {
+            const { botId, appState } = req.body;
+            
+            if (!botId || !appState) {
+                return res.status(400).json({ 
+                    success: false, 
+                    error: 'botId and appState are required' 
+                });
+            }
+            
+            // Save appstate
+            const filePath = path.join(CONFIG.botsDir, `${botId}.json`);
+            fs.writeFileSync(filePath, JSON.stringify(appState, null, 2));
+            
+            // Add bot
+            await manager.addBot(botId, { appState });
+            
+            res.json({ 
+                success: true, 
+                message: `Bot "${botId}" added successfully`,
+                bot: manager.getBot(botId)
+            });
+        } catch (error) {
+            res.status(500).json({ success: false, error: error.message });
+        }
+    });
+    
+    app.delete('/api/bots/:botId', (req, res) => {
+        try {
+            const { botId } = req.params;
+            manager.removeBot(botId);
+            
+            const filePath = path.join(CONFIG.botsDir, `${botId}.json`);
+            if (fs.existsSync(filePath)) {
+                fs.unlinkSync(filePath);
+            }
+            
+            res.json({ success: true, message: `Bot "${botId}" removed` });
+        } catch (error) {
+            res.status(500).json({ success: false, error: error.message });
+        }
+    });
+    
+    app.post('/api/bots/:botId/restart', async (req, res) => {
+        try {
+            const { botId } = req.params;
+            await manager.restartBot(botId);
+            res.json({ success: true, message: `Bot "${botId}" restarted` });
+        } catch (error) {
+            res.status(500).json({ success: false, error: error.message });
+        }
+    });
+    
+    app.post('/api/broadcast', async (req, res) => {
+        try {
+            const { message, threadID } = req.body;
+            
+            if (!message || !threadID) {
+                return res.status(400).json({ 
+                    success: false, 
+                    error: 'message and threadID are required' 
+                });
+            }
+            
+            const results = await manager.broadcast(message, threadID);
+            res.json({ success: true, results });
+        } catch (error) {
+            res.status(500).json({ success: false, error: error.message });
+        }
+    });
+}
+
+async function startMultiBot() {
+    console.log('🤖 Starting Multi-Bot Mode...\n');
+    
+    // Initialize bot manager
+    manager = new BotManager({
+        advancedProtection: CONFIG.protection.enabled,
+        autoRotateSession: CONFIG.protection.autoRotateSession,
+        randomUserAgent: CONFIG.protection.randomUserAgent,
+        updatePresence: CONFIG.protection.updatePresence,
+        autoMarkDelivery: CONFIG.protection.autoMarkDelivery,
+        autoMarkRead: CONFIG.protection.autoMarkRead,
+        cookieRefresh: CONFIG.keepAlive.enabled,
+        cookieRefreshInterval: CONFIG.keepAlive.cookieRefreshInterval,
+        listenEvents: true,
+        logLevel: 'silent',
+        selfListen: false,
+        online: true
+    });
+    
+    // Setup events
+    setupMultiBotEvents();
+    
+    // Setup web interface
+    setupWebInterface();
+    
+    // Load bots
+    await loadBots();
+    
+    // Start server
+    app.listen(CONFIG.port, () => {
+        console.log(`\n🌐 Web Interface: http://localhost:${CONFIG.port}`);
+        console.log('👂 Listening for messages from all bots...\n');
+        
+        const stats = manager.getStats();
+        console.log(`📊 Manager Stats:`);
+        console.log(`   • Total bots: ${stats.totalBots}`);
+        console.log(`   • Active bots: ${stats.activeBots}\n`);
+        
+        if (stats.totalBots === 0) {
+            console.log('💡 Tip: Add bots via web interface at http://localhost:' + CONFIG.port);
+        }
+    });
+}
+
+// ============================================
+// MAIN
+// ============================================
+
+async function start() {
+    console.log('🤖 Starting Jubiar Bot Manager...\n');
+    
+    // Detect mode
+    detectMode();
+    
+    // Load commands
+    loadCommands();
+    
+    // Start based on mode
+    if (CONFIG.mode === 'single') {
+        startSingleBot();
+    } else {
+        await startMultiBot();
+    }
+}
+
+// Start the application
+start();
 
 // Handle process termination
 process.on('SIGINT', () => {
-    console.log('\n\n👋 Bot shutting down...');
+    console.log('\n\n👋 Shutting down gracefully...');
+    if (manager) {
+        manager.stopAll();
+    }
     process.exit(0);
+});
+
+// Handle uncaught errors
+process.on('uncaughtException', (error) => {
+    console.error('💥 Uncaught Exception:', error);
+});
+
+process.on('unhandledRejection', (error) => {
+    console.error('💥 Unhandled Rejection:', error);
 });
 
