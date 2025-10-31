@@ -16,7 +16,7 @@
   "author": "Jubiar",
   "license": "MIT",
   "dependencies": {
-    "biar-fca": "^3.6.6"
+    "biar-fca": "^3.6.7"
   },
   "engines": {
     "node": ">=22.x"
