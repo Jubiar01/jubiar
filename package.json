@@ -1,22 +1,25 @@
 {
   "name": "jubiar-bot",
-  "version": "1.0.0",
-  "description": "Facebook Messenger Bot using biar-fca",
+  "version": "2.0.0",
+  "description": "Facebook Messenger Bot with Multi-Account Support using biar-fca",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
+    "multi": "node index-multi.js",
     "dev": "node index.js"
   },
   "keywords": [
     "facebook",
     "messenger",
     "bot",
-    "biar-fca"
+    "biar-fca",
+    "multi-account"
   ],
   "author": "Jubiar",
   "license": "MIT",
   "dependencies": {
-    "biar-fca": "^3.6.7"
+    "biar-fca": "^3.6.8",
+    "express": "^4.19.2"
   },
   "engines": {
     "node": ">=22.x"
