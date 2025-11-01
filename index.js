@@ -13,7 +13,6 @@ const MONGODB_CONFIG = {
     collections: {
         bots: 'bots',
         stats: 'stats',
-        logs: 'logs',
         commands: 'commands'
     }
 };
@@ -147,22 +146,6 @@ const MongoDB = {
         }
     },
 
-    async logEvent(botId, eventType, data) {
-        if (!db) return false;
-        try {
-            await db.collection(MONGODB_CONFIG.collections.logs).insertOne({
-                botId,
-                eventType,
-                data,
-                timestamp: new Date()
-            });
-            return true;
-        } catch (error) {
-            console.error('Error logging event to MongoDB:', error.message);
-            return false;
-        }
-    },
-
     async saveBotCommand(botId, commandData) {
         if (!db) return false;
         try {
@@ -292,14 +275,13 @@ class BotManager extends EventEmitter {
 
             login(credentials, this.options, (err, api) => {
                 if (err) {
-                    bot.status = 'error';
-                    bot.errorMessage = err.message || 'Login failed';
-                    this.emit('botError', { botId, error: err });
-                    
-                    console.error(`❌ Bot "${botId}" login failed:`, err.message);
-                    MongoDB.logEvent(botId, 'login_failed', { error: err.message });
-                    
-                    return reject(err);
+                bot.status = 'error';
+                bot.errorMessage = err.message || 'Login failed';
+                this.emit('botError', { botId, error: err });
+                
+                console.error(`❌ Bot "${botId}" login failed:`, err.message);
+                
+                return reject(err);
                 }
 
                 bot.api = api;
@@ -320,7 +302,6 @@ class BotManager extends EventEmitter {
                 };
 
                 MongoDB.saveBotConfig(botId, credentials.appState, bot.userID, credentials.password);
-                MongoDB.logEvent(botId, 'bot_added', { userID: bot.userID });
 
                 loadBotCommands(botId);
 
@@ -329,6 +310,7 @@ class BotManager extends EventEmitter {
                 const stopListening = api.listenMqtt((err, event) => {
                     const currentBot = this.bots.get(botId);
                     if (!currentBot || currentBot.status === 'offline' || !currentBot.api) {
+                        console.log(`⚠️ Ignoring event for removed/offline bot: ${botId}`);
                         return;
                     }
                     
@@ -352,13 +334,15 @@ class BotManager extends EventEmitter {
         });
     }
 
-    removeBot(botId) {
+    async removeBot(botId) {
         const bot = this.bots.get(botId);
         if (!bot) {
             throw new Error(`Bot "${botId}" not found`);
         }
 
         console.log(`🗑️ Removing bot ${botId}...`);
+
+        bot.status = 'offline';
 
         if (bot.onlinePresence && typeof bot.onlinePresence.stop === 'function') {
             try {
@@ -390,10 +374,8 @@ class BotManager extends EventEmitter {
             }
         }
 
-        const wasOnline = bot.status === 'online';
+        const wasOnline = bot.status === 'offline';
         
-        bot.status = 'offline';
-
         this.bots.delete(botId);
         this.stats.totalBots--;
         if (wasOnline) {
@@ -405,8 +387,7 @@ class BotManager extends EventEmitter {
             console.log(`✓ Cleared commands for bot ${botId}`);
         }
 
-        MongoDB.deleteBotConfig(botId);
-        MongoDB.logEvent(botId, 'bot_removed', { userID: bot.userID });
+        await MongoDB.deleteBotConfig(botId);
 
         this.emit('botRemoved', { botId });
         console.log(`✓ Bot ${botId} completely removed and cleaned up`);
@@ -443,13 +424,35 @@ class BotManager extends EventEmitter {
             console.log(`✓ Cleared old commands for bot ${botId}`);
         }
 
-        this.removeBot(botId);
+        const existingBot = this.bots.get(botId);
+        if (existingBot && existingBot.stopListening) {
+            try {
+                existingBot.stopListening();
+                console.log(`✓ Force stopped old listener for ${botId}`);
+            } catch (e) {
+                console.error(`Error force stopping listener: ${e.message}`);
+            }
+        }
+
+        if (existingBot && existingBot.onlinePresence) {
+            try {
+                existingBot.onlinePresence.stop();
+                console.log(`✓ Force stopped old online presence for ${botId}`);
+            } catch (e) {
+                console.error(`Error force stopping presence: ${e.message}`);
+            }
+        }
+
+        if (existingBot && existingBot.api) {
+            existingBot.api = null;
+        }
+
+        await this.removeBot(botId);
         
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => setTimeout(resolve, 2000));
 
         await this.addBot(botId, { appState, password });
         
-        MongoDB.logEvent(botId, 'bot_restarted', {});
         console.log(`✅ Bot ${botId} restarted successfully`);
     }
 
@@ -994,10 +997,10 @@ function setupWebInterface() {
             const existingBot = manager.getBot(botId);
             
             if (existingBot) {
-                manager.removeBot(botId);
+                await manager.removeBot(botId);
             }
             
-            await new Promise(resolve => setTimeout(resolve, 500));
+            await new Promise(resolve => setTimeout(resolve, 2000));
             
             await manager.addBot(botId, { appState });
             
@@ -1020,7 +1023,7 @@ function setupWebInterface() {
                 return res.status(401).json({ success: false, error: 'Invalid password required to delete bot' });
             }
             
-            manager.removeBot(botId);
+            await manager.removeBot(botId);
             
             const filePath = path.join(CONFIG.botsDir, `${botId}.json`);
             if (fs.existsSync(filePath)) {

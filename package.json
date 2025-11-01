@@ -17,7 +17,7 @@
   "author": "Jubiar",
   "license": "MIT",
   "dependencies": {
-    "biar-fca": "^3.7.5",
+    "biar-fca": "^3.7.6",
     "dotenv": "^17.2.3",
     "express": "^4.19.2",
     "mongodb": "^6.20.0"
