@@ -7,7 +7,6 @@ const { login } = require('biar-fca');
 const EventEmitter = require('events');
 const { MongoClient } = require('mongodb');
 
-// MongoDB Configuration
 const MONGODB_CONFIG = {
     url: process.env.MONGODB_URL,
     dbName: process.env.MONGODB_DB,
@@ -22,10 +21,8 @@ const MONGODB_CONFIG = {
 let mongoClient = null;
 let db = null;
 
-// Initialize MongoDB Connection
 async function connectMongoDB() {
     try {
-        // MongoDB connection options with proper TLS configuration
         const options = {
             tls: true,
             tlsAllowInvalidCertificates: false,
@@ -45,7 +42,6 @@ async function connectMongoDB() {
         db = mongoClient.db(MONGODB_CONFIG.dbName);
         console.log('✅ Connected to MongoDB');
         
-        // Create indexes
         await db.collection(MONGODB_CONFIG.collections.bots).createIndex({ botId: 1 }, { unique: true });
         console.log('✅ MongoDB indexes created');
         
@@ -57,7 +53,6 @@ async function connectMongoDB() {
     }
 }
 
-// MongoDB Helper Functions
 const MongoDB = {
     async saveBotConfig(botId, appState, userID = null, password = null) {
         if (!db) return false;
@@ -69,9 +64,7 @@ const MongoDB = {
                 updatedAt: new Date()
             };
             
-            // Only set password if provided (don't overwrite existing)
             if (password) {
-                // Simple hash - in production, use bcrypt
                 const crypto = require('crypto');
                 updateData.passwordHash = crypto.createHash('sha256').update(password).digest('hex');
             }
@@ -82,7 +75,7 @@ const MongoDB = {
                     $set: updateData,
                     $setOnInsert: {
                         createdAt: new Date(),
-                        commands: [] // Bot-specific commands
+                        commands: []
                     }
                 },
                 { upsert: true }
@@ -170,7 +163,6 @@ const MongoDB = {
         }
     },
 
-    // Bot-Specific Command Management
     async saveBotCommand(botId, commandData) {
         if (!db) return false;
         try {
@@ -240,44 +232,27 @@ const MongoDB = {
     }
 };
 
-// Configuration
 const CONFIG = {
-    // Mode: 'single' or 'multi' (auto-detected)
     mode: null,
-    
-    // Single bot mode
     appStatePath: path.join(__dirname, 'appstate.json'),
-    
-    // Multi-bot mode
     port: 3000,
     botsDir: path.join(__dirname, 'bots'),
     commandsDir: path.join(__dirname, 'cmd'),
-    
-    // Common settings
-    prefix: '', // Command prefix
-    adminID: [], // Add admin user IDs here if needed
-    
-    // Advanced Protection Settings (biar-fca v3.6.2+)
+    prefix: '',
+    adminID: [],
     protection: {
-        enabled: true,              // Enable advanced anti-detection
-        autoRotateSession: true,    // Auto-rotate session every 6hrs
-        randomUserAgent: true,      // Use random realistic user agents
-        autoMarkDelivery: true,     // Auto-mark messages as delivered (realistic)
-        autoMarkRead: true,         // Auto-mark messages as read (realistic)
-        updatePresence: true        // Maintain online presence
+        enabled: true,
+        autoRotateSession: true,
+        randomUserAgent: true,
+        autoMarkDelivery: true,
+        autoMarkRead: true,
+        updatePresence: true
     },
-    
-    // Built-in Keep-Alive System (v3.6.6+)
     keepAlive: {
-        enabled: true,              // Enable built-in keep-alive (cookie refresh + MQTT pings)
-        cookieRefreshInterval: 20 * 60 * 1000,  // Cookie refresh every 20 minutes (default)
-        // MQTT keep-alive happens automatically every 30 seconds
+        enabled: true,
+        cookieRefreshInterval: 20 * 60 * 1000,
     }
 };
-
-// ============================================
-// CUSTOM BOT MANAGER CLASS
-// ============================================
 
 class BotManager extends EventEmitter {
     constructor(options = {}) {
@@ -303,7 +278,7 @@ class BotManager extends EventEmitter {
                 userID: null,
                 status: 'connecting',
                 api: null,
-                stopListening: null, // Store the stopListening function
+                stopListening: null,
                 stats: {
                     messagesReceived: 0,
                     messagesSent: 0,
@@ -317,12 +292,10 @@ class BotManager extends EventEmitter {
 
             login(credentials, this.options, (err, api) => {
                 if (err) {
-                    // DON'T delete the bot - mark as error status instead
                     bot.status = 'error';
                     bot.errorMessage = err.message || 'Login failed';
                     this.emit('botError', { botId, error: err });
                     
-                    // Log the error but keep bot in database
                     console.error(`❌ Bot "${botId}" login failed:`, err.message);
                     MongoDB.logEvent(botId, 'login_failed', { error: err.message });
                     
@@ -334,7 +307,11 @@ class BotManager extends EventEmitter {
                 bot.userID = api.getCurrentUserID();
                 this.stats.activeBots++;
 
-                // Wrap sendMessage to track sent messages
+                if (api.startOnlinePresence) {
+                    bot.onlinePresence = api.startOnlinePresence(30 * 1000);
+                    console.log(`✅ Online presence started for bot "${botId}" (30 seconds)`);
+                }
+
                 const originalSendMessage = api.sendMessage;
                 api.sendMessage = (...args) => {
                     bot.stats.messagesSent++;
@@ -342,21 +319,16 @@ class BotManager extends EventEmitter {
                     return originalSendMessage.apply(api, args);
                 };
 
-                // Save to MongoDB
                 MongoDB.saveBotConfig(botId, credentials.appState, bot.userID, credentials.password);
                 MongoDB.logEvent(botId, 'bot_added', { userID: bot.userID });
 
-                // Load bot-specific commands
                 loadBotCommands(botId);
 
                 this.emit('botAdded', { botId, userID: bot.userID });
 
-                // Store the stopListening function returned by listenMqtt
                 const stopListening = api.listenMqtt((err, event) => {
-                    // CRITICAL: Check if bot still exists before processing
                     const currentBot = this.bots.get(botId);
                     if (!currentBot || currentBot.status === 'offline' || !currentBot.api) {
-                        // Bot was removed, ignore this event
                         return;
                     }
                     
@@ -388,7 +360,15 @@ class BotManager extends EventEmitter {
 
         console.log(`🗑️ Removing bot ${botId}...`);
 
-        // Stop listening first (CRITICAL - prevents responses after deletion)
+        if (bot.onlinePresence && typeof bot.onlinePresence.stop === 'function') {
+            try {
+                bot.onlinePresence.stop();
+                console.log(`✓ Stopped online presence for bot ${botId}`);
+            } catch (error) {
+                console.error(`Error stopping online presence for bot ${botId}:`, error.message);
+            }
+        }
+
         if (bot.stopListening && typeof bot.stopListening === 'function') {
             try {
                 bot.stopListening();
@@ -398,11 +378,9 @@ class BotManager extends EventEmitter {
             }
         }
 
-        // Set the API to null to prevent any further use
         const tempApi = bot.api;
         bot.api = null;
 
-        // Then logout
         if (tempApi && typeof tempApi.logout === 'function') {
             try {
                 tempApi.logout();
@@ -412,26 +390,21 @@ class BotManager extends EventEmitter {
             }
         }
 
-        // Track if bot was online
         const wasOnline = bot.status === 'online';
         
-        // Set status to offline before removing
         bot.status = 'offline';
 
-        // Remove from bots map
         this.bots.delete(botId);
         this.stats.totalBots--;
         if (wasOnline) {
             this.stats.activeBots--;
         }
 
-        // Clear bot-specific commands from memory
         if (botCommands.has(botId)) {
             botCommands.delete(botId);
             console.log(`✓ Cleared commands for bot ${botId}`);
         }
 
-        // Delete from MongoDB
         MongoDB.deleteBotConfig(botId);
         MongoDB.logEvent(botId, 'bot_removed', { userID: bot.userID });
 
@@ -450,17 +423,13 @@ class BotManager extends EventEmitter {
         let appState = null;
         let password = null;
 
-        // Try to get appState from MongoDB first
         if (db) {
             const config = await MongoDB.getBotConfig(botId);
             if (config && config.appState) {
                 appState = config.appState;
-                // We don't store the actual password, so we'll skip password on restart
-                // The passwordHash will remain in the database
             }
         }
 
-        // Fallback: Load from file system
         if (!appState) {
             const filePath = path.join(CONFIG.botsDir, `${botId}.json`);
             if (!fs.existsSync(filePath)) {
@@ -469,19 +438,15 @@ class BotManager extends EventEmitter {
             appState = JSON.parse(fs.readFileSync(filePath, 'utf8'));
         }
 
-        // IMPORTANT: Clear bot commands first to prevent duplicates
         if (botCommands.has(botId)) {
             botCommands.delete(botId);
             console.log(`✓ Cleared old commands for bot ${botId}`);
         }
 
-        // Remove the bot completely (stops listeners, clears everything)
         this.removeBot(botId);
         
-        // Small delay to ensure cleanup is complete
         await new Promise(resolve => setTimeout(resolve, 500));
 
-        // Re-add the bot with fresh state
         await this.addBot(botId, { appState, password });
         
         MongoDB.logEvent(botId, 'bot_restarted', {});
@@ -541,20 +506,20 @@ class BotManager extends EventEmitter {
         console.log('🛑 Stopping all bots...');
         for (const [botId, bot] of this.bots) {
             try {
-                // Stop listening first
+                if (bot.onlinePresence && typeof bot.onlinePresence.stop === 'function') {
+                    bot.onlinePresence.stop();
+                }
+                
                 if (bot.stopListening && typeof bot.stopListening === 'function') {
                     bot.stopListening();
                 }
-                // Nullify API to prevent further use
                 const tempApi = bot.api;
                 bot.api = null;
                 
-                // Then logout
                 if (tempApi && typeof tempApi.logout === 'function') {
                     tempApi.logout();
                 }
                 
-                // Clear bot commands
                 if (botCommands.has(botId)) {
                     botCommands.delete(botId);
                 }
@@ -570,17 +535,13 @@ class BotManager extends EventEmitter {
     }
 }
 
-// Command storage
-const commands = new Map(); // Global built-in commands
-const botCommands = new Map(); // Bot-specific commands: Map<botId, Map<cmdName, command>>
+const commands = new Map();
+const botCommands = new Map();
 
-// Bot Manager (for multi-bot mode)
 let manager = null;
 
-// Express app (for multi-bot mode)
 let app = null;
 
-// Detect mode (single or multi)
 function detectMode() {
     const botsDir = CONFIG.botsDir;
     const hasBotsDir = fs.existsSync(botsDir);
@@ -601,7 +562,6 @@ function detectMode() {
         return;
     }
     
-    // Default to multi-bot mode and create directory
     CONFIG.mode = 'multi';
     if (!fs.existsSync(botsDir)) {
         fs.mkdirSync(botsDir, { recursive: true });
@@ -609,13 +569,11 @@ function detectMode() {
     console.log('🤖 Mode: Multi-Bot (no bots configured yet)');
 }
 
-// Load all global commands from cmd folder
 async function loadCommands() {
     const cmdPath = CONFIG.commandsDir;
     let commandCount = 0;
     
     try {
-        // Load built-in commands from cmd folder
         const files = fs.readdirSync(cmdPath).filter(file => file.endsWith('.js'));
         
         for (const file of files) {
@@ -626,7 +584,6 @@ async function loadCommands() {
                     console.log(`✓ Loaded global command: ${command.name}`);
                     commandCount++;
                     
-                    // Load aliases if available
                     if (command.aliases && Array.isArray(command.aliases)) {
                         command.aliases.forEach(alias => {
                             commands.set(alias, command);
@@ -644,7 +601,6 @@ async function loadCommands() {
     }
 }
 
-// Load bot-specific commands for a bot
 async function loadBotCommands(botId) {
     if (!db) return;
     
@@ -661,7 +617,6 @@ async function loadBotCommands(botId) {
         
         for (const cmdData of customCommands) {
             try {
-                // Create a command object from stored data
                 const command = {
                     name: cmdData.name,
                     description: cmdData.description,
@@ -672,7 +627,6 @@ async function loadBotCommands(botId) {
                     execute: async (api, event, args, config) => {
                         const { threadID, messageID } = event;
                         try {
-                            // Execute the stored code
                             const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
                             const func = new AsyncFunction('api', 'event', 'args', 'config', cmdData.code);
                             await func(api, event, args, config);
@@ -685,7 +639,6 @@ async function loadBotCommands(botId) {
                 
                 botCmdMap.set(command.name, command);
                 
-                // Load aliases
                 if (command.aliases && Array.isArray(command.aliases)) {
                     command.aliases.forEach(alias => {
                         botCmdMap.set(alias, command);
@@ -702,14 +655,11 @@ async function loadBotCommands(botId) {
     }
 }
 
-// Monitor Keep-Alive System (v3.6.6+)
 function monitorKeepAliveSystem(api) {
     console.log('📊 Keep-Alive Monitoring: Started\n');
     
-    // Log stats every 10 minutes
     setInterval(() => {
         try {
-            // Get keep-alive statistics
             if (typeof api.getCookieRefreshStats === 'function') {
                 const stats = api.getCookieRefreshStats();
                 const now = new Date().toLocaleTimeString();
@@ -725,13 +675,11 @@ function monitorKeepAliveSystem(api) {
                 console.log(`     • Failures: ${stats.mqttKeepAlive.pingFailures}`);
                 console.log(`     • Last ping: ${Math.floor(stats.mqttKeepAlive.timeSinceLastPing / 1000)}s ago`);
                 
-                // Calculate total uptime
                 const uptimeMinutes = Math.floor(stats.timeSinceLastRefresh / 60000);
                 const uptimeHours = (uptimeMinutes / 60).toFixed(1);
                 console.log(`   • Bot Uptime: ${uptimeHours}h (${uptimeMinutes}m)`);
             }
             
-            // Get protection statistics
             if (typeof api.getProtectionStats === 'function') {
                 const protectionStats = api.getProtectionStats();
                 const uptime = Math.floor(protectionStats.uptime / 1000 / 60);
@@ -742,23 +690,19 @@ function monitorKeepAliveSystem(api) {
         } catch (error) {
             console.error('❌ Error getting stats:', error.message);
         }
-    }, 10 * 60 * 1000); // Log every 10 minutes
+    }, 10 * 60 * 1000);
 }
 
-// Handle incoming messages (single-bot mode)
 function handleMessage(api, event) {
     const { body, threadID, messageID, senderID } = event;
     
     if (!body || typeof body !== 'string') return;
     
-    // Check if message starts with prefix
     if (!body.startsWith(CONFIG.prefix)) return;
     
-    // Parse command and arguments
     const args = body.slice(CONFIG.prefix.length).trim().split(/ +/);
     const commandName = args.shift().toLowerCase();
     
-    // Find command
     const command = commands.get(commandName);
     
     if (!command) return;
@@ -766,7 +710,6 @@ function handleMessage(api, event) {
     try {
         console.log(`⚡ Command: ${commandName} | User: ${senderID} | Thread: ${threadID}`);
         
-        // Execute command
         command.execute(api, event, args, CONFIG);
     } catch (error) {
         console.error(`Error executing command ${commandName}:`, error);
@@ -774,9 +717,7 @@ function handleMessage(api, event) {
     }
 }
 
-// Handle incoming messages (multi-bot mode)
 function handleMessageMulti(botId, bot, event) {
-    // CRITICAL: Check if bot still exists and has valid API
     if (!bot || !bot.api || bot.status === 'offline') {
         console.log(`⚠️ Ignoring message for removed/offline bot: ${botId}`);
         return;
@@ -786,20 +727,16 @@ function handleMessageMulti(botId, bot, event) {
     
     if (!body || typeof body !== 'string') return;
     
-    // Check if message starts with prefix
     if (!body.startsWith(CONFIG.prefix)) return;
     
-    // Parse command and arguments
     const args = body.slice(CONFIG.prefix.length).trim().split(/ +/);
     const commandName = args.shift().toLowerCase();
     
-    // Check bot-specific commands first
     let command = null;
     if (botCommands.has(botId)) {
         command = botCommands.get(botId).get(commandName);
     }
     
-    // If no bot-specific command, check global commands
     if (!command) {
         command = commands.get(commandName);
     }
@@ -809,17 +746,14 @@ function handleMessageMulti(botId, bot, event) {
     try {
         console.log(`⚡ [${botId}] Command: ${commandName} | User: ${senderID} | Thread: ${threadID}`);
         
-        // Double-check API is still valid before executing
         if (!bot.api) {
             console.log(`⚠️ Bot ${botId} API is null, skipping command execution`);
             return;
         }
         
-        // Execute command with bot API
         command.execute(bot.api, event, args, CONFIG);
     } catch (error) {
         console.error(`[${botId}] Error executing command ${commandName}:`, error);
-        // Only try to send error message if API is still valid
         if (bot.api && typeof bot.api.sendMessage === 'function') {
             try {
                 bot.api.sendMessage(`❌ Error: ${error.message}`, threadID, messageID);
@@ -830,14 +764,9 @@ function handleMessageMulti(botId, bot, event) {
     }
 }
 
-// ============================================
-// SINGLE-BOT MODE
-// ============================================
-
 function startSingleBot() {
     console.log('📱 Starting Single-Bot Mode...\n');
     
-    // Check if appstate exists
     if (!fs.existsSync(CONFIG.appStatePath)) {
         console.error(`\n❌ Error: appstate.json not found at ${CONFIG.appStatePath}`);
         console.log('Please create an appstate.json file first.');
@@ -845,7 +774,6 @@ function startSingleBot() {
         process.exit(1);
     }
     
-    // Load appstate
     let appState;
     try {
         appState = JSON.parse(fs.readFileSync(CONFIG.appStatePath, 'utf8'));
@@ -854,7 +782,6 @@ function startSingleBot() {
         process.exit(1);
     }
     
-    // Login to Facebook
     console.log('🔐 Logging in to Facebook...');
     
     login({ appState }, {
@@ -878,19 +805,21 @@ function startSingleBot() {
         
         console.log('✅ Login successful!\n');
         
-        // Display status
         if (typeof api.getProtectionStats === 'function') {
             const stats = api.getProtectionStats();
             console.log('🛡️  Protection Status: ✅ Enabled');
             console.log('🔄 Keep-Alive System: ✅ Active\n');
         }
         
-        // Monitor keep-alive
+        if (api.startOnlinePresence) {
+            const onlinePresence = api.startOnlinePresence(30 * 1000);
+            console.log('✅ Online presence started (30 seconds)\n');
+        }
+        
         if (CONFIG.keepAlive.enabled) {
             monitorKeepAliveSystem(api);
         }
         
-        // Listen for messages
         console.log('👂 Listening for messages...\n');
         
         api.listenMqtt((err, event) => {
@@ -906,17 +835,12 @@ function startSingleBot() {
     });
 }
 
-// ============================================
-// MULTI-BOT MODE
-// ============================================
-
 async function loadBots() {
     console.log('📂 Loading bots...\n');
     
     try {
         let loaded = 0;
         
-        // Try loading from MongoDB first
         if (db) {
             console.log('📊 Loading bots from MongoDB...');
             const botConfigs = await MongoDB.getAllBotConfigs();
@@ -932,7 +856,6 @@ async function loadBots() {
             }
         }
         
-        // Fallback: Load from file system if MongoDB is not available
         if (!db || loaded === 0) {
             console.log('📁 Loading bots from file system...');
             const files = fs.readdirSync(CONFIG.botsDir);
@@ -978,7 +901,6 @@ function setupMultiBotEvents() {
     });
     
     manager.on('message', ({ botId, bot, event }) => {
-        // Verify bot still exists in manager before processing
         const currentBot = manager.getBot(botId);
         if (!currentBot || currentBot.status === 'offline') {
             console.log(`⚠️ Discarding message for removed bot: ${botId}`);
@@ -997,7 +919,6 @@ function setupWebInterface() {
     app.use(express.json());
     app.use(express.static(path.join(__dirname, 'public')));
     
-    // API Routes
     app.get('/api/bots', (req, res) => {
         const bots = manager.getAllBots().map(bot => ({
             id: bot.id,
@@ -1037,10 +958,8 @@ function setupWebInterface() {
                 });
             }
             
-            // Add bot (this will also save to MongoDB via BotManager)
             await manager.addBot(botId, { appState, password });
             
-            // Fallback: Also save to file system if MongoDB is not available
             if (!db) {
                 const filePath = path.join(CONFIG.botsDir, `${botId}.json`);
                 fs.writeFileSync(filePath, JSON.stringify(appState, null, 2));
@@ -1061,7 +980,6 @@ function setupWebInterface() {
             const { botId } = req.params;
             const { password, appState } = req.body;
             
-            // Verify password
             if (!await MongoDB.verifyBotPassword(botId, password)) {
                 return res.status(401).json({ success: false, error: 'Invalid password' });
             }
@@ -1073,18 +991,14 @@ function setupWebInterface() {
                 });
             }
             
-            // Get existing bot to preserve custom commands
             const existingBot = manager.getBot(botId);
             
-            // Remove the old bot instance
             if (existingBot) {
                 manager.removeBot(botId);
             }
             
-            // Small delay for cleanup
             await new Promise(resolve => setTimeout(resolve, 500));
             
-            // Re-add bot with new credentials (password is preserved in DB)
             await manager.addBot(botId, { appState });
             
             res.json({ 
@@ -1102,14 +1016,12 @@ function setupWebInterface() {
             const { botId } = req.params;
             const { password } = req.headers;
             
-            // Verify password before deletion
             if (!await MongoDB.verifyBotPassword(botId, password)) {
                 return res.status(401).json({ success: false, error: 'Invalid password required to delete bot' });
             }
             
             manager.removeBot(botId);
             
-            // Also delete file if it exists (for fallback compatibility)
             const filePath = path.join(CONFIG.botsDir, `${botId}.json`);
             if (fs.existsSync(filePath)) {
                 fs.unlinkSync(filePath);
@@ -1126,7 +1038,6 @@ function setupWebInterface() {
             const { botId } = req.params;
             const { password } = req.body;
             
-            // Verify password before restart
             if (!await MongoDB.verifyBotPassword(botId, password)) {
                 return res.status(401).json({ success: false, error: 'Invalid password' });
             }
@@ -1156,7 +1067,6 @@ function setupWebInterface() {
         }
     });
     
-    // Bot Authentication API
     app.post('/api/bots/:botId/verify', async (req, res) => {
         try {
             const { botId } = req.params;
@@ -1181,13 +1091,11 @@ function setupWebInterface() {
         }
     });
     
-    // Bot-Specific Command Management APIs
     app.get('/api/bots/:botId/commands', async (req, res) => {
         try {
             const { botId } = req.params;
             const { password } = req.headers;
             
-            // Verify password
             if (!await MongoDB.verifyBotPassword(botId, password)) {
                 return res.status(401).json({ success: false, error: 'Unauthorized' });
             }
@@ -1205,7 +1113,6 @@ function setupWebInterface() {
             const { password } = req.headers;
             const { name, description, usage, aliases, code } = req.body;
             
-            // Verify password
             if (!await MongoDB.verifyBotPassword(botId, password)) {
                 return res.status(401).json({ success: false, error: 'Unauthorized' });
             }
@@ -1227,7 +1134,6 @@ function setupWebInterface() {
             
             await MongoDB.saveBotCommand(botId, commandData);
             
-            // Reload bot commands
             await loadBotCommands(botId);
             
             res.json({ 
@@ -1245,14 +1151,12 @@ function setupWebInterface() {
             const { botId, name } = req.params;
             const { password } = req.headers;
             
-            // Verify password
             if (!await MongoDB.verifyBotPassword(botId, password)) {
                 return res.status(401).json({ success: false, error: 'Unauthorized' });
             }
             
             await MongoDB.deleteBotCommand(botId, name);
             
-            // Reload bot commands
             await loadBotCommands(botId);
             
             res.json({ success: true, message: `Command "${name}" deleted` });
@@ -1266,7 +1170,6 @@ function setupWebInterface() {
             const { botId, name } = req.params;
             const { password } = req.headers;
             
-            // Verify password
             if (!await MongoDB.verifyBotPassword(botId, password)) {
                 return res.status(401).json({ success: false, error: 'Unauthorized' });
             }
@@ -1290,13 +1193,10 @@ function setupWebInterface() {
 async function startMultiBot() {
     console.log('🤖 Starting Multi-Bot Mode...\n');
     
-    // Initialize MongoDB connection
     await connectMongoDB();
     
-    // Load commands (after MongoDB is connected)
     await loadCommands();
     
-    // Initialize bot manager
     manager = new BotManager({
         advancedProtection: CONFIG.protection.enabled,
         autoRotateSession: CONFIG.protection.autoRotateSession,
@@ -1312,16 +1212,12 @@ async function startMultiBot() {
         online: true
     });
     
-    // Setup events
     setupMultiBotEvents();
     
-    // Setup web interface
     setupWebInterface();
     
-    // Load bots
     await loadBots();
     
-    // Start server
     app.listen(CONFIG.port, () => {
         console.log(`\n🌐 Web Interface: http://localhost:${CONFIG.port}`);
         console.log('👂 Listening for messages from all bots...\n');
@@ -1338,19 +1234,12 @@ async function startMultiBot() {
     });
 }
 
-// ============================================
-// MAIN
-// ============================================
-
 async function start() {
     console.log('🤖 Starting Jubiar Bot Manager...\n');
     
-    // Detect mode
     detectMode();
     
-    // Start based on mode
     if (CONFIG.mode === 'single') {
-        // Load commands (don't need MongoDB for single mode)
         await loadCommands();
         startSingleBot();
     } else {
@@ -1358,10 +1247,8 @@ async function start() {
     }
 }
 
-// Start the application
 start();
 
-// Handle process termination
 process.on('SIGINT', async () => {
     console.log('\n\n👋 Shutting down gracefully...');
     if (manager) {
@@ -1374,7 +1261,6 @@ process.on('SIGINT', async () => {
     process.exit(0);
 });
 
-// Handle uncaught errors
 process.on('uncaughtException', (error) => {
     console.error('💥 Uncaught Exception:', error);
 });
@@ -1382,4 +1268,3 @@ process.on('uncaughtException', (error) => {
 process.on('unhandledRejection', (error) => {
     console.error('💥 Unhandled Rejection:', error);
 });
-
