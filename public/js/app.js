@@ -70,6 +70,24 @@ const BotManager = {
     },
 
     async removeBot(botId) {
+        // Prompt for password first
+        const password = prompt(`⚠️ To delete bot "${botId}", please enter the bot password:`);
+        if (!password) return;
+        
+        // Verify password
+        try {
+            const verifyData = await API.verifyBotPassword(botId, password);
+            
+            if (!verifyData.success) {
+                UI.showMessage('❌ Invalid password. Bot deletion cancelled.', 'error');
+                return;
+            }
+        } catch (error) {
+            UI.showMessage('❌ Password verification failed: ' + error.message, 'error');
+            return;
+        }
+        
+        // Confirm deletion after password verification
         if (!confirm(`⚠️ Remove bot "${botId}"?\n\nThis will:\n• Stop the bot\n• Delete all configurations\n• Remove all custom commands\n\nThis action cannot be undone.`)) return;
         
         try {
@@ -87,38 +105,6 @@ const BotManager = {
         }
     },
 
-    async deleteAllBots() {
-        const data = await API.getBots();
-        
-        if (!data.success || data.bots.length === 0) {
-            UI.showMessage('ℹ️ No bots to delete', 'info');
-            return;
-        }
-        
-        if (!confirm(`⚠️ DELETE ALL ${data.bots.length} BOTS?\n\nThis action CANNOT be undone!`)) {
-            return;
-        }
-        
-        let deleted = 0;
-        let failed = 0;
-        
-        for (const bot of data.bots) {
-            try {
-                const delData = await API.removeBot(bot.id);
-                if (delData.success) {
-                    deleted++;
-                } else {
-                    failed++;
-                }
-            } catch (error) {
-                failed++;
-            }
-        }
-        
-        UI.showMessage(`✅ Deleted ${deleted} bot(s). Failed: ${failed}`, deleted > 0 ? 'success' : 'error');
-        await this.loadBots();
-        await this.loadStats();
-    },
 
     async manageBotPrompt(botId) {
         const password = prompt(`Enter password for bot "${botId}":`);
@@ -184,6 +170,112 @@ const BotManager = {
         } catch (error) {
             console.error('Error loading bot info:', error);
         }
+    }
+};
+
+// AI Command Generator Module
+const AIGenerator = {
+    async generateCommand() {
+        const prompt = document.getElementById('aiPrompt').value.trim();
+        
+        if (!prompt) {
+            UI.showCommandMessage('❌ Please describe what you want the command to do', 'error');
+            return;
+        }
+        
+        const btn = document.querySelector('#aiGenBtnText');
+        const originalText = btn.textContent;
+        btn.textContent = 'Generating...';
+        btn.parentElement.disabled = true;
+        
+        try {
+            // Use Google Gemini AI (Free tier available)
+            const GEMINI_API_KEY = 'AIzaSyDDqepLreAquC8jXZhUNjVe9N01UUlxiwQ'; // Get free key from https://makersuite.google.com/app/apikey
+            
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${GEMINI_API_KEY}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    contents: [{
+                        parts: [{
+                            text: `You are a Facebook Messenger bot command generator. Generate a JavaScript command based on this description: "${prompt}"
+
+Return ONLY a valid JSON object with this exact structure (no markdown, no code blocks, no extra text):
+{
+    "name": "commandname",
+    "description": "brief description",
+    "usage": "commandname <args>",
+    "aliases": ["alias1", "alias2"],
+    "code": "const { threadID, messageID } = event;\\nawait api.sendMessage('response', threadID, messageID);"
+}
+
+Available variables in the code: api, event, args, config
+The code must be complete, working JavaScript that can be executed directly.
+Use proper escaping for newlines (\\n) in the code string.`
+                        }]
+                    }],
+                    generationConfig: {
+                        temperature: 0.7,
+                        topK: 40,
+                        topP: 0.95,
+                        maxOutputTokens: 1024,
+                    }
+                })
+            });
+            
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error?.message || 'AI API error. Please add your Gemini API key in app.js');
+            }
+            
+            const data = await response.json();
+            let generatedText = data.candidates[0].content.parts[0].text;
+            
+            // Clean up the response - remove markdown code blocks if present
+            generatedText = generatedText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+            
+            // Parse the JSON response
+            const commandData = JSON.parse(generatedText);
+            
+            // Fill in the form
+            document.getElementById('cmdName').value = commandData.name;
+            document.getElementById('cmdDescription').value = commandData.description;
+            document.getElementById('cmdUsage').value = commandData.usage;
+            document.getElementById('cmdAliases').value = commandData.aliases.join(', ');
+            document.getElementById('cmdCode').value = commandData.code;
+            
+            UI.showCommandMessage('✅ Command generated by Gemini AI! Review and save it below.', 'success');
+            document.getElementById('aiPrompt').value = '';
+            
+        } catch (error) {
+            // Fallback: Use local template generation
+            console.log('Using fallback generator:', error);
+            this.generateFallbackCommand(prompt);
+        } finally {
+            btn.textContent = originalText;
+            btn.parentElement.disabled = false;
+        }
+    },
+    
+    generateFallbackCommand(prompt) {
+        // Simple template-based generation
+        const name = prompt.toLowerCase().split(' ').slice(0, 2).join('');
+        const code = `const { threadID, messageID } = event;
+
+// TODO: Implement the logic for: ${prompt}
+
+const response = "Command executed! Implement your logic here.";
+await api.sendMessage(response, threadID, messageID);`;
+        
+        document.getElementById('cmdName').value = name;
+        document.getElementById('cmdDescription').value = prompt;
+        document.getElementById('cmdUsage').value = `!${name}`;
+        document.getElementById('cmdCode').value = code;
+        
+        UI.showCommandMessage('✅ Template generated! Please customize the code below.', 'success');
+        document.getElementById('aiPrompt').value = '';
     }
 };
 
@@ -292,10 +384,6 @@ async function refreshAll() {
     await BotManager.loadStats();
     await BotManager.loadBots();
     UI.showMessage('✅ Refreshed!', 'success');
-}
-
-async function deleteAllBots() {
-    await BotManager.deleteAllBots();
 }
 
 // Initialize Application
