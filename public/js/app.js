@@ -189,10 +189,10 @@ const AIGenerator = {
         btn.parentElement.disabled = true;
         
         try {
-            // Use Google Gemini AI (Free tier available)
+            // Use Google Gemini 2.5 Flash AI (Free tier available)
             const GEMINI_API_KEY = 'AIzaSyDDqepLreAquC8jXZhUNjVe9N01UUlxiwQ'; // Get free key from https://makersuite.google.com/app/apikey
             
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${GEMINI_API_KEY}`, {
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -200,27 +200,124 @@ const AIGenerator = {
                 body: JSON.stringify({
                     contents: [{
                         parts: [{
-                            text: `You are a Facebook Messenger bot command generator. Generate a JavaScript command based on this description: "${prompt}"
+                            text: `You are an elite Facebook Messenger bot command developer with 10+ years of experience. Generate a COMPLETE, PRODUCTION-READY JavaScript command for this request:
 
-Return ONLY a valid JSON object with this exact structure (no markdown, no code blocks, no extra text):
+"${prompt}"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📋 CRITICAL REQUIREMENTS (MUST FOLLOW ALL):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✅ CODE QUALITY:
+• Write COMPLETE logic - NO TODO comments or placeholders
+• Implement ALL features mentioned in the request
+• Add comprehensive input validation
+• Include detailed error messages with examples
+• Use try-catch for operations that might fail
+• Add helpful user feedback for every scenario
+• Make code clean, efficient, and well-commented
+
+✅ USER EXPERIENCE:
+• Provide clear, friendly error messages
+• Use emojis to make responses engaging (🎲 ✅ ❌ 💡 🎯 etc.)
+• Add random variations for dynamic responses
+• Show usage examples in error messages
+• Give positive feedback on successful actions
+• Make command name short, memorable, and intuitive
+
+✅ DATA STRUCTURES:
+• For random commands: Use arrays with 10-20+ diverse options
+• For calculations: Handle edge cases and invalid inputs
+• For games: Track state, scores, or streaks if applicable
+• For information: Format output beautifully with spacing
+
+✅ CREATIVITY:
+• Be innovative and add unexpected features
+• Include easter eggs or special responses
+• Add personality to the bot's responses
+• Think beyond basic implementation
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🛠️ AVAILABLE TOOLS & VARIABLES:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+EVENT OBJECT:
+• event.threadID - Chat/group ID where message was sent
+• event.messageID - ID of the triggering message
+• event.senderID - User ID who sent the message
+• event.body - Full message text
+• event.isGroup - Boolean if message is from a group
+
+API METHODS:
+• await api.sendMessage(text, threadID, messageID) - Send message
+• await api.getUserInfo(userID) - Get user details (name, etc.)
+• await api.setMessageReaction(reaction, messageID, threadID) - React to message
+• await api.sendTypingIndicator(threadID) - Show "typing..." indicator
+
+ARGS ARRAY:
+• args - Array of words after command (e.g., "!cmd hello world" → ["hello", "world"])
+• args.join(' ') - Combine all arguments into one string
+• args[0], args[1] - Access specific arguments
+• args.length - Number of arguments provided
+
+COMMON PATTERNS:
+• Random: items[Math.floor(Math.random() * items.length)]
+• Validation: if (!args.length) { /* error */ return; }
+• Numbers: const num = parseInt(args[0]) || parseFloat(args[0])
+• Join text: const fullText = args.join(' ')
+• Delays: setTimeout(() => { /* action */ }, milliseconds)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📤 OUTPUT FORMAT (STRICT JSON - NO MARKDOWN):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Return ONLY this exact JSON structure:
 {
-    "name": "commandname",
-    "description": "brief description",
-    "usage": "commandname <args>",
-    "aliases": ["alias1", "alias2"],
-    "code": "const { threadID, messageID } = event;\\nawait api.sendMessage('response', threadID, messageID);"
+    "name": "shortcommandname",
+    "description": "Detailed description of what this command does and how it works",
+    "usage": "commandname <required_arg> [optional_arg]",
+    "aliases": ["alias1", "alias2", "alias3"],
+    "code": "const { threadID, messageID, senderID } = event;\\n\\n// Validate input\\nif (args.length === 0) {\\n    await api.sendMessage('❌ Error: Missing argument!\\\\n\\\\n📖 Usage: commandname <arg>\\\\n💡 Example: commandname hello', threadID, messageID);\\n    return;\\n}\\n\\n// Your complete implementation here\\nconst result = 'output';\\nawait api.sendMessage(result, threadID, messageID);"
 }
 
-Available variables in the code: api, event, args, config
-The code must be complete, working JavaScript that can be executed directly.
-Use proper escaping for newlines (\\n) in the code string.`
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💡 CODE EXAMPLES FOR INSPIRATION:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+RANDOM SELECTION:
+const items = ['A', 'B', 'C'];
+const choice = items[Math.floor(Math.random() * items.length)];
+
+ERROR HANDLING:
+try {
+    const num = parseInt(args[0]);
+    if (isNaN(num)) throw new Error('Not a number');
+} catch (error) {
+    await api.sendMessage('❌ Invalid input!', threadID, messageID);
+    return;
+}
+
+MULTIPLE VALIDATIONS:
+if (args.length === 0) {
+    await api.sendMessage('❌ Please provide input!\\\\n\\\\n💡 Example: cmd text', threadID, messageID);
+    return;
+}
+if (args.length > 10) {
+    await api.sendMessage('❌ Too many arguments! Max 10.', threadID, messageID);
+    return;
+}
+
+FORMATTED OUTPUT:
+const output = \`🎯 Results:\\\\n━━━━━━━━━━━\\\\n\${data}\\\\n━━━━━━━━━━━\\\\n✅ Done!\`;
+
+NOW GENERATE THE COMMAND! Make it AMAZING! 🚀`
                         }]
                     }],
                     generationConfig: {
-                        temperature: 0.7,
-                        topK: 40,
+                        temperature: 0.9,
+                        topK: 50,
                         topP: 0.95,
-                        maxOutputTokens: 1024,
+                        maxOutputTokens: 8192,
                     }
                 })
             });
@@ -260,21 +357,70 @@ Use proper escaping for newlines (\\n) in the code string.`
     },
     
     generateFallbackCommand(prompt) {
-        // Simple template-based generation
-        const name = prompt.toLowerCase().split(' ').slice(0, 2).join('');
-        const code = `const { threadID, messageID } = event;
+        // Enhanced template-based generation
+        const words = prompt.toLowerCase().split(' ').filter(w => w.length > 2);
+        const name = words.slice(0, 2).join('').replace(/[^a-z0-9]/g, '');
+        
+        // Generate smarter code based on keywords
+        let code;
+        if (prompt.includes('random') || prompt.includes('choose') || prompt.includes('pick')) {
+            code = `const { threadID, messageID } = event;
 
-// TODO: Implement the logic for: ${prompt}
+// ${prompt}
+const options = ['Option 1', 'Option 2', 'Option 3', 'Option 4'];
+const random = options[Math.floor(Math.random() * options.length)];
 
-const response = "Command executed! Implement your logic here.";
+await api.sendMessage(\`🎲 \${random}\`, threadID, messageID);`;
+        } else if (prompt.includes('greet') || prompt.includes('hello') || prompt.includes('hi')) {
+            code = `const { threadID, messageID, senderID } = event;
+
+const greetings = ['Hello', 'Hi', 'Hey', 'Greetings', 'Welcome'];
+const randomGreeting = greetings[Math.floor(Math.random() * greetings.length)];
+
+const name = args.length > 0 ? args.join(' ') : 'there';
+await api.sendMessage(\`\${randomGreeting} \${name}! 👋\`, threadID, messageID);`;
+        } else if (prompt.includes('calculate') || prompt.includes('math') || prompt.includes('calc')) {
+            code = `const { threadID, messageID } = event;
+
+if (args.length === 0) {
+    await api.sendMessage('❌ Please provide a math expression!\\n\\nExample: calc 5 + 3 * 2', threadID, messageID);
+    return;
+}
+
+try {
+    const expression = args.join(' ');
+    const result = Function('"use strict"; return (' + expression + ')')();
+    
+    if (typeof result !== 'number' || isNaN(result)) {
+        throw new Error('Invalid result');
+    }
+    
+    await api.sendMessage(\`🧮 \${expression} = **\${result}**\`, threadID, messageID);
+} catch (error) {
+    await api.sendMessage('❌ Invalid math expression!', threadID, messageID);
+}`;
+        } else {
+            code = `const { threadID, messageID, senderID } = event;
+
+// ${prompt}
+
+if (args.length === 0) {
+    await api.sendMessage('❌ Please provide input!\\n\\nUsage: ${name} <input>', threadID, messageID);
+    return;
+}
+
+const userInput = args.join(' ');
+const response = \`✅ Received: \${userInput}\`;
+
 await api.sendMessage(response, threadID, messageID);`;
+        }
         
         document.getElementById('cmdName').value = name;
         document.getElementById('cmdDescription').value = prompt;
-        document.getElementById('cmdUsage').value = `!${name}`;
+        document.getElementById('cmdUsage').value = `${name} <args>`;
         document.getElementById('cmdCode').value = code;
         
-        UI.showCommandMessage('✅ Template generated! Please customize the code below.', 'success');
+        UI.showCommandMessage('✅ Smart template generated! Review and customize the code below.', 'success');
         document.getElementById('aiPrompt').value = '';
     }
 };

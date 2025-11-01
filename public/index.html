@@ -213,13 +213,14 @@
                             <h3 class="text-lg font-bold text-white flex items-center space-x-2">
                                 <i data-lucide="sparkles" class="w-5 h-5 text-purple-400"></i>
                                 <span>AI Command Generator</span>
-                                <span class="text-xs bg-purple-500/20 text-purple-300 px-2 py-1 rounded">Powered by Gemini</span>
+                                <span class="text-xs bg-gradient-to-r from-purple-500 to-pink-500 text-white px-2 py-1 rounded font-semibold">Gemini 2.5 Flash</span>
                             </h3>
                             
                             <div>
                                 <label class="block text-sm font-medium text-gray-300 mb-2">Describe what you want the command to do *</label>
-                                <textarea id="aiPrompt" rows="3" placeholder="e.g., Create a command that greets users with a random greeting and shows the current time"
-                                    class="w-full bg-slate-800/50 border border-slate-600 rounded-lg px-3 py-2 text-white"></textarea>
+                                <textarea id="aiPrompt" rows="4" placeholder="Be specific! Examples:&#10;• Create a magic 8-ball command with creative predictions&#10;• Make a coin flip command with streak tracking&#10;• Generate a random quote generator with categories&#10;• Build a reminder command that messages after X seconds"
+                                    class="w-full bg-slate-800/50 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></textarea>
+                                <p class="text-xs text-gray-400 mt-1">💡 Tip: The more detailed your request, the better the AI-generated command!</p>
                             </div>
                             
                             <div class="flex items-center justify-between">
