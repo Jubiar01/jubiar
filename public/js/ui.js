@@ -99,11 +99,23 @@ const UI = {
         const statusColors = {
             online: 'bg-green-500',
             offline: 'bg-red-500',
-            connecting: 'bg-yellow-500'
+            connecting: 'bg-yellow-500',
+            error: 'bg-red-600'
+        };
+        
+        const statusTextColors = {
+            online: 'text-green-400',
+            offline: 'text-red-400',
+            connecting: 'text-yellow-400',
+            error: 'text-red-400'
         };
 
-        botsList.innerHTML = bots.map(bot => `
-            <div class="glass rounded-xl p-6 card hover:border-blue-500/50">
+        botsList.innerHTML = bots.map(bot => {
+            const isError = bot.status === 'error';
+            const errorMessage = bot.errorMessage || '';
+            
+            return `
+            <div class="glass rounded-xl p-6 card hover:border-blue-500/50 ${isError ? 'border-red-500/50' : ''}">
                 <div class="flex items-start justify-between mb-4">
                     <div class="flex items-center space-x-3">
                         <div class="bg-gradient-to-br from-blue-500 to-purple-600 p-3 rounded-lg">
@@ -116,9 +128,25 @@ const UI = {
                     </div>
                     <div class="flex items-center space-x-2">
                         <span class="${statusColors[bot.status]} status-dot w-2 h-2 rounded-full"></span>
-                        <span class="text-sm font-medium capitalize ${bot.status === 'online' ? 'text-green-400' : 'text-red-400'}">${bot.status}</span>
+                        <span class="text-sm font-medium capitalize ${statusTextColors[bot.status]}">${bot.status}</span>
                     </div>
                 </div>
+                
+                ${isError ? `
+                <div class="bg-red-500/10 border border-red-500/30 rounded-lg p-3 mb-4">
+                    <div class="flex items-start space-x-2">
+                        <i data-lucide="alert-triangle" class="w-5 h-5 text-red-400 mt-0.5"></i>
+                        <div class="flex-1">
+                            <p class="text-red-400 font-medium text-sm">Cookie Expired or Login Error</p>
+                            <p class="text-red-300 text-xs mt-1">${errorMessage}</p>
+                            <button onclick="BotManager.editBotPrompt('${bot.id}')" class="mt-2 bg-red-500/20 hover:bg-red-500/30 text-red-300 px-3 py-1.5 rounded text-xs font-medium flex items-center space-x-1 transition-all">
+                                <i data-lucide="edit" class="w-3 h-3"></i>
+                                <span>Update Cookies</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                ` : ''}
                 
                 <div class="grid grid-cols-3 gap-4 mb-4 bg-slate-800/30 rounded-lg p-4">
                     <div class="text-center">
@@ -136,19 +164,27 @@ const UI = {
                 </div>
                 
                 <div class="flex space-x-2">
+                    ${!isError ? `
                     <button onclick="BotManager.manageBotPrompt('${bot.id}')" class="flex-1 btn-primary px-4 py-2 rounded-lg text-sm font-medium flex items-center justify-center space-x-2">
                         <i data-lucide="settings" class="w-4 h-4"></i>
                         <span>Manage</span>
                     </button>
-                    <button onclick="BotManager.restartBot('${bot.id}')" class="glass hover:bg-yellow-500/20 px-4 py-2 rounded-lg text-yellow-400 transition-all">
+                    ` : `
+                    <button onclick="BotManager.editBotPrompt('${bot.id}')" class="flex-1 bg-orange-500/20 hover:bg-orange-500/30 text-orange-400 px-4 py-2 rounded-lg text-sm font-medium flex items-center justify-center space-x-2 transition-all">
+                        <i data-lucide="edit" class="w-4 h-4"></i>
+                        <span>Fix Cookies</span>
+                    </button>
+                    `}
+                    <button onclick="BotManager.restartBotPrompt('${bot.id}')" class="glass hover:bg-yellow-500/20 px-4 py-2 rounded-lg text-yellow-400 transition-all">
                         <i data-lucide="refresh-cw" class="w-4 h-4"></i>
                     </button>
-                    <button onclick="BotManager.removeBot('${bot.id}')" class="glass hover:bg-red-500/20 px-4 py-2 rounded-lg text-red-400 transition-all">
+                    <button onclick="BotManager.removeBotPrompt('${bot.id}')" class="glass hover:bg-red-500/20 px-4 py-2 rounded-lg text-red-400 transition-all">
                         <i data-lucide="trash-2" class="w-4 h-4"></i>
                     </button>
                 </div>
             </div>
-        `).join('');
+        `;
+        }).join('');
 
         lucide.createIcons();
     },

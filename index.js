@@ -317,9 +317,15 @@ class BotManager extends EventEmitter {
 
             login(credentials, this.options, (err, api) => {
                 if (err) {
-                    this.bots.delete(botId);
-                    this.stats.totalBots--;
+                    // DON'T delete the bot - mark as error status instead
+                    bot.status = 'error';
+                    bot.errorMessage = err.message || 'Login failed';
                     this.emit('botError', { botId, error: err });
+                    
+                    // Log the error but keep bot in database
+                    console.error(`❌ Bot "${botId}" login failed:`, err.message);
+                    MongoDB.logEvent(botId, 'login_failed', { error: err.message });
+                    
                     return reject(err);
                 }
 
@@ -1050,9 +1056,57 @@ function setupWebInterface() {
         }
     });
     
-    app.delete('/api/bots/:botId', (req, res) => {
+    app.put('/api/bots/:botId', async (req, res) => {
         try {
             const { botId } = req.params;
+            const { password, appState } = req.body;
+            
+            // Verify password
+            if (!await MongoDB.verifyBotPassword(botId, password)) {
+                return res.status(401).json({ success: false, error: 'Invalid password' });
+            }
+            
+            if (!appState) {
+                return res.status(400).json({ 
+                    success: false, 
+                    error: 'appState is required' 
+                });
+            }
+            
+            // Get existing bot to preserve custom commands
+            const existingBot = manager.getBot(botId);
+            
+            // Remove the old bot instance
+            if (existingBot) {
+                manager.removeBot(botId);
+            }
+            
+            // Small delay for cleanup
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            // Re-add bot with new credentials (password is preserved in DB)
+            await manager.addBot(botId, { appState });
+            
+            res.json({ 
+                success: true, 
+                message: `Bot "${botId}" credentials updated successfully`,
+                bot: manager.getBot(botId)
+            });
+        } catch (error) {
+            res.status(500).json({ success: false, error: error.message });
+        }
+    });
+    
+    app.delete('/api/bots/:botId', async (req, res) => {
+        try {
+            const { botId } = req.params;
+            const { password } = req.headers;
+            
+            // Verify password before deletion
+            if (!await MongoDB.verifyBotPassword(botId, password)) {
+                return res.status(401).json({ success: false, error: 'Invalid password required to delete bot' });
+            }
+            
             manager.removeBot(botId);
             
             // Also delete file if it exists (for fallback compatibility)
@@ -1070,6 +1124,13 @@ function setupWebInterface() {
     app.post('/api/bots/:botId/restart', async (req, res) => {
         try {
             const { botId } = req.params;
+            const { password } = req.body;
+            
+            // Verify password before restart
+            if (!await MongoDB.verifyBotPassword(botId, password)) {
+                return res.status(401).json({ success: false, error: 'Invalid password' });
+            }
+            
             await manager.restartBot(botId);
             res.json({ success: true, message: `Bot "${botId}" restarted` });
         } catch (error) {

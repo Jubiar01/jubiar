@@ -52,11 +52,14 @@ const BotManager = {
         }
     },
 
-    async restartBot(botId) {
+    async restartBotPrompt(botId) {
+        const password = prompt(`Enter password for bot "${botId}" to restart:`);
+        if (!password) return;
+        
         if (!confirm(`Restart bot "${botId}"?`)) return;
         
         try {
-            const data = await API.restartBot(botId);
+            const data = await API.restartBot(botId, password);
             
             if (data.success) {
                 UI.showMessage(`✅ Bot "${botId}" restarted!`, 'success');
@@ -69,29 +72,14 @@ const BotManager = {
         }
     },
 
-    async removeBot(botId) {
-        // Prompt for password first
-        const password = prompt(`⚠️ To delete bot "${botId}", please enter the bot password:`);
+    async removeBotPrompt(botId) {
+        const password = prompt(`⚠️ To delete bot "${botId}", enter the bot password:`);
         if (!password) return;
         
-        // Verify password
-        try {
-            const verifyData = await API.verifyBotPassword(botId, password);
-            
-            if (!verifyData.success) {
-                UI.showMessage('❌ Invalid password. Bot deletion cancelled.', 'error');
-                return;
-            }
-        } catch (error) {
-            UI.showMessage('❌ Password verification failed: ' + error.message, 'error');
-            return;
-        }
-        
-        // Confirm deletion after password verification
         if (!confirm(`⚠️ Remove bot "${botId}"?\n\nThis will:\n• Stop the bot\n• Delete all configurations\n• Remove all custom commands\n\nThis action cannot be undone.`)) return;
         
         try {
-            const data = await API.removeBot(botId);
+            const data = await API.removeBot(botId, password);
             
             if (data.success) {
                 UI.showMessage(`✅ Bot "${botId}" removed!`, 'success');
@@ -99,6 +87,45 @@ const BotManager = {
                 await this.loadStats();
             } else {
                 UI.showMessage(`❌ ${data.error}`, 'error');
+            }
+        } catch (error) {
+            UI.showMessage(`❌ ${error.message}`, 'error');
+        }
+    },
+
+    async editBotPrompt(botId) {
+        const password = prompt(`Enter password for bot "${botId}" to update cookies:`);
+        if (!password) return;
+        
+        try {
+            // Verify password first
+            const verifyData = await API.verifyBotPassword(botId, password);
+            
+            if (!verifyData.success) {
+                UI.showMessage('❌ Invalid password', 'error');
+                return;
+            }
+            
+            // Prompt for new AppState
+            const newAppState = prompt(`Paste the NEW AppState JSON for bot "${botId}":\n\n(Your custom commands will be preserved)`);
+            if (!newAppState) return;
+            
+            try {
+                const appState = JSON.parse(newAppState);
+                
+                UI.showMessage(`🔄 Updating bot "${botId}" cookies...`, 'info');
+                
+                const data = await API.updateBot(botId, password, appState);
+                
+                if (data.success) {
+                    UI.showMessage(`✅ Bot "${botId}" cookies updated! Bot is restarting...`, 'success');
+                    await this.loadBots();
+                    await this.loadStats();
+                } else {
+                    UI.showMessage(`❌ ${data.error}`, 'error');
+                }
+            } catch (parseError) {
+                UI.showMessage('❌ Invalid JSON format. Please check your AppState.', 'error');
             }
         } catch (error) {
             UI.showMessage(`❌ ${error.message}`, 'error');

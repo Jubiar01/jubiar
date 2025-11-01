@@ -22,16 +22,28 @@ const API = {
         return await response.json();
     },
 
-    async removeBot(botId) {
+    async updateBot(botId, password, appState) {
         const response = await fetch(`/api/bots/${botId}`, {
-            method: 'DELETE'
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password, appState })
         });
         return await response.json();
     },
 
-    async restartBot(botId) {
+    async removeBot(botId, password) {
+        const response = await fetch(`/api/bots/${botId}`, {
+            method: 'DELETE',
+            headers: { 'password': password }
+        });
+        return await response.json();
+    },
+
+    async restartBot(botId, password) {
         const response = await fetch(`/api/bots/${botId}/restart`, {
-            method: 'POST'
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password })
         });
         return await response.json();
     },
