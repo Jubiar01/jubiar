@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 const fs = require('fs');
 const path = require('path');
 const express = require('express');
@@ -7,8 +9,8 @@ const { MongoClient } = require('mongodb');
 
 // MongoDB Configuration
 const MONGODB_CONFIG = {
-    url: process.env.MONGODB_URL || 'mongodb+srv://marvinjubiar123:biar136584130350@biar-fca.ss2mqis.mongodb.net/',
-    dbName: process.env.MONGODB_DB || 'biar-fca',
+    url: process.env.MONGODB_URL,
+    dbName: process.env.MONGODB_DB,
     collections: {
         bots: 'bots',
         stats: 'stats',
