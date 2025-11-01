@@ -394,7 +394,7 @@ class BotManager extends EventEmitter {
         console.log(`✓ Bot ${botId} completely removed and cleaned up`);
     }
 
-    async restartBot(botId) {
+    async restartBot(botId, password = null) {
         const bot = this.bots.get(botId);
         if (!bot) {
             throw new Error(`Bot "${botId}" not found`);
@@ -403,7 +403,6 @@ class BotManager extends EventEmitter {
         console.log(`🔄 Restarting bot ${botId}...`);
 
         let appState = null;
-        let password = null;
 
         if (db) {
             const config = await MongoDB.getBotConfig(botId);
@@ -1016,7 +1015,12 @@ function setupWebInterface() {
             
             await new Promise(resolve => setTimeout(resolve, 2000));
             
-            await manager.addBot(botId, { appState });
+            await manager.addBot(botId, { appState, password });
+            
+            if (!db) {
+                const filePath = path.join(CONFIG.botsDir, `${botId}.json`);
+                fs.writeFileSync(filePath, JSON.stringify(appState, null, 2));
+            }
             
             res.json({ 
                 success: true, 
@@ -1059,7 +1063,7 @@ function setupWebInterface() {
                 return res.status(401).json({ success: false, error: 'Invalid password' });
             }
             
-            await manager.restartBot(botId);
+            await manager.restartBot(botId, password);
             res.json({ success: true, message: `Bot "${botId}" restarted` });
         } catch (error) {
             res.status(500).json({ success: false, error: error.message });
