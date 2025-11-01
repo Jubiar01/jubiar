@@ -367,7 +367,8 @@ class BotManager extends EventEmitter {
 
         if (tempApi && typeof tempApi.logout === 'function') {
             try {
-                tempApi.logout();
+                console.log(`⏳ Logging out bot ${botId} (waiting for MQTT cleanup)...`);
+                await tempApi.logout();
                 console.log(`✓ Logged out bot ${botId}`);
             } catch (error) {
                 console.error(`Error logging out bot ${botId}:`, error.message);
@@ -505,36 +506,49 @@ class BotManager extends EventEmitter {
         return results;
     }
 
-    stopAll() {
+    async stopAll() {
         console.log('🛑 Stopping all bots...');
+        const stopPromises = [];
+        
         for (const [botId, bot] of this.bots) {
-            try {
-                if (bot.onlinePresence && typeof bot.onlinePresence.stop === 'function') {
-                    bot.onlinePresence.stop();
+            const stopBot = async () => {
+                try {
+                    bot.status = 'offline';
+                    
+                    if (bot.onlinePresence && typeof bot.onlinePresence.stop === 'function') {
+                        bot.onlinePresence.stop();
+                    }
+                    
+                    if (bot.stopListening && typeof bot.stopListening === 'function') {
+                        bot.stopListening();
+                    }
+                    
+                    const tempApi = bot.api;
+                    bot.api = null;
+                    
+                    if (tempApi && typeof tempApi.logout === 'function') {
+                        console.log(`⏳ Logging out bot ${botId}...`);
+                        await tempApi.logout();
+                    }
+                    
+                    if (botCommands.has(botId)) {
+                        botCommands.delete(botId);
+                    }
+                } catch (error) {
+                    console.error(`Error stopping bot ${botId}:`, error.message);
                 }
-                
-                if (bot.stopListening && typeof bot.stopListening === 'function') {
-                    bot.stopListening();
-                }
-                const tempApi = bot.api;
-                bot.api = null;
-                
-                if (tempApi && typeof tempApi.logout === 'function') {
-                    tempApi.logout();
-                }
-                
-                if (botCommands.has(botId)) {
-                    botCommands.delete(botId);
-                }
-            } catch (error) {
-                console.error(`Error stopping bot ${botId}:`, error.message);
-            }
+            };
+            
+            stopPromises.push(stopBot());
         }
+        
+        await Promise.all(stopPromises);
+        
         this.bots.clear();
         botCommands.clear();
         this.stats.totalBots = 0;
         this.stats.activeBots = 0;
-        console.log('✅ All bots stopped');
+        console.log('✅ All bots stopped and MQTT connections closed');
     }
 }
 
@@ -1255,7 +1269,7 @@ start();
 process.on('SIGINT', async () => {
     console.log('\n\n👋 Shutting down gracefully...');
     if (manager) {
-        manager.stopAll();
+        await manager.stopAll();
     }
     if (mongoClient) {
         await mongoClient.close();
