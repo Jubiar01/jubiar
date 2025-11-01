@@ -25,7 +25,22 @@ let db = null;
 // Initialize MongoDB Connection
 async function connectMongoDB() {
     try {
-        mongoClient = new MongoClient(MONGODB_CONFIG.url);
+        // MongoDB connection options with proper TLS configuration
+        const options = {
+            tls: true,
+            tlsAllowInvalidCertificates: false,
+            tlsAllowInvalidHostnames: false,
+            serverSelectionTimeoutMS: 30000,
+            socketTimeoutMS: 45000,
+            connectTimeoutMS: 30000,
+            maxPoolSize: 10,
+            minPoolSize: 2,
+            retryWrites: true,
+            retryReads: true,
+            w: 'majority'
+        };
+
+        mongoClient = new MongoClient(MONGODB_CONFIG.url, options);
         await mongoClient.connect();
         db = mongoClient.db(MONGODB_CONFIG.dbName);
         console.log('✅ Connected to MongoDB');
