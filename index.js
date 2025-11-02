@@ -292,8 +292,8 @@ class BotManager extends EventEmitter {
                 this.stats.activeBots++;
 
                 if (api.startOnlinePresence) {
-                    bot.onlinePresence = api.startOnlinePresence(30 * 1000);
-                    console.log(`✅ Online presence started for bot "${botId}" (30 seconds)`);
+                    bot.onlinePresence = api.startOnlinePresence();
+                    console.log(`✅ Online presence started for bot "${botId}"`);
                 }
 
                 const originalSendMessage = api.sendMessage;
@@ -844,8 +844,8 @@ function startSingleBot() {
         }
         
         if (api.startOnlinePresence) {
-            const onlinePresence = api.startOnlinePresence(30 * 1000);
-            console.log('✅ Online presence started (30 seconds)\n');
+            const onlinePresence = api.startOnlinePresence();
+            console.log('✅ Online presence started\n');
         }
         
         if (CONFIG.keepAlive.enabled) {
