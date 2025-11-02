@@ -1,15 +1,25 @@
 // API Module - Handles all backend API calls
 
 const API = {
-    // Stats API
     async getStats() {
-        const response = await fetch('/api/stats');
+        const response = await fetch('/api/stats', {
+            cache: 'no-store',
+            headers: {
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache'
+            }
+        });
         return await response.json();
     },
 
-    // Bots API
     async getBots() {
-        const response = await fetch('/api/bots');
+        const response = await fetch('/api/bots?_=' + Date.now(), {
+            cache: 'no-store',
+            headers: {
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache'
+            }
+        });
         return await response.json();
     },
 

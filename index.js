@@ -114,7 +114,8 @@ const MongoDB = {
     async getAllBotConfigs() {
         if (!db) return [];
         try {
-            return await db.collection(MONGODB_CONFIG.collections.bots).find({}).toArray();
+            const configs = await db.collection(MONGODB_CONFIG.collections.bots).find({}).toArray();
+            return configs || [];
         } catch (error) {
             console.error('Error getting all bot configs from MongoDB:', error.message);
             return [];
@@ -124,8 +125,9 @@ const MongoDB = {
     async deleteBotConfig(botId) {
         if (!db) return false;
         try {
-            await db.collection(MONGODB_CONFIG.collections.bots).deleteOne({ botId });
-            return true;
+            const result = await db.collection(MONGODB_CONFIG.collections.bots).deleteOne({ botId });
+            console.log(`✓ MongoDB: Deleted ${result.deletedCount} bot config(s) for ${botId}`);
+            return result.deletedCount > 0;
         } catch (error) {
             console.error('Error deleting bot config from MongoDB:', error.message);
             return false;
@@ -342,6 +344,7 @@ class BotManager extends EventEmitter {
 
         console.log(`🗑️ Removing bot ${botId}...`);
 
+        const wasOnline = bot.status === 'online';
         bot.status = 'offline';
 
         if (bot.onlinePresence && typeof bot.onlinePresence.stop === 'function') {
@@ -375,12 +378,10 @@ class BotManager extends EventEmitter {
             }
         }
 
-        const wasOnline = bot.status === 'offline';
-        
         this.bots.delete(botId);
-        this.stats.totalBots--;
+        this.stats.totalBots = Math.max(0, this.stats.totalBots - 1);
         if (wasOnline) {
-            this.stats.activeBots--;
+            this.stats.activeBots = Math.max(0, this.stats.activeBots - 1);
         }
 
         if (botCommands.has(botId)) {
@@ -392,6 +393,8 @@ class BotManager extends EventEmitter {
 
         this.emit('botRemoved', { botId });
         console.log(`✓ Bot ${botId} completely removed and cleaned up`);
+        
+        return true;
     }
 
     async restartBot(botId, password = null) {
@@ -461,7 +464,8 @@ class BotManager extends EventEmitter {
     }
 
     getAllBots() {
-        return Array.from(this.bots.values());
+        const bots = Array.from(this.bots.values());
+        return bots.filter(bot => bot !== null && bot !== undefined);
     }
 
     getStats() {
@@ -936,17 +940,26 @@ function setupWebInterface() {
     app.use(express.static(path.join(__dirname, 'public')));
     
     app.get('/api/bots', (req, res) => {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+        
         const bots = manager.getAllBots().map(bot => ({
             id: bot.id,
             userID: bot.userID,
             status: bot.status,
             stats: bot.stats,
-            uptime: Date.now() - bot.stats.startTime
+            uptime: Date.now() - bot.stats.startTime,
+            errorMessage: bot.errorMessage || null
         }));
         res.json({ success: true, bots });
     });
     
     app.get('/api/stats', (req, res) => {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+        
         const stats = manager.getStats();
         res.json({ success: true, stats });
     });
@@ -1041,15 +1054,22 @@ function setupWebInterface() {
                 return res.status(401).json({ success: false, error: 'Invalid password required to delete bot' });
             }
             
+            console.log(`📡 API: Removing bot ${botId}...`);
+            
             await manager.removeBot(botId);
             
             const filePath = path.join(CONFIG.botsDir, `${botId}.json`);
             if (fs.existsSync(filePath)) {
                 fs.unlinkSync(filePath);
+                console.log(`✓ Deleted file: ${botId}.json`);
             }
             
+            res.setHeader('Cache-Control', 'no-store');
             res.json({ success: true, message: `Bot "${botId}" removed` });
+            
+            console.log(`✅ API: Bot ${botId} removal completed`);
         } catch (error) {
+            console.error(`❌ API: Error removing bot:`, error.message);
             res.status(500).json({ success: false, error: error.message });
         }
     });

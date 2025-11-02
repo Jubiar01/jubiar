@@ -21,10 +21,14 @@ const BotManager = {
         try {
             const data = await API.getBots();
             if (data.success) {
-                UI.renderBotsList(data.bots);
+                UI.renderBotsList(data.bots || []);
+            } else {
+                console.error('Failed to load bots:', data.error);
+                UI.renderBotsList([]);
             }
         } catch (error) {
             console.error('Error loading bots:', error);
+            UI.renderBotsList([]);
         }
     },
 
@@ -35,20 +39,40 @@ const BotManager = {
         const password = document.getElementById('botPassword').value.trim();
         const appStateText = document.getElementById('appState').value.trim();
         
+        if (!botId || !password || !appStateText) {
+            UI.showMessage('❌ All fields are required!', 'error');
+            return;
+        }
+        
         try {
             const appState = JSON.parse(appStateText);
+            
+            if (!Array.isArray(appState) || appState.length === 0) {
+                UI.showMessage('❌ AppState must be a non-empty array!', 'error');
+                return;
+            }
+            
+            UI.showMessage(`🔄 Adding bot "${botId}"...`, 'info');
+            
             const data = await API.addBot(botId, password, appState);
             
             if (data.success) {
                 UI.showMessage(`✅ Bot "${botId}" added successfully!`, 'success');
                 document.getElementById('addBotForm').reset();
+                
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
                 await this.loadBots();
                 await this.loadStats();
             } else {
                 UI.showMessage(`❌ ${data.error}`, 'error');
             }
         } catch (error) {
-            UI.showMessage(`❌ ${error.message}`, 'error');
+            if (error instanceof SyntaxError) {
+                UI.showMessage('❌ Invalid JSON format in AppState!', 'error');
+            } else {
+                UI.showMessage(`❌ ${error.message}`, 'error');
+            }
         }
     },
 
@@ -58,12 +82,18 @@ const BotManager = {
         
         if (!confirm(`Restart bot "${botId}"?`)) return;
         
+        UI.showMessage(`🔄 Restarting bot "${botId}"...`, 'info');
+        
         try {
             const data = await API.restartBot(botId, password);
             
             if (data.success) {
-                UI.showMessage(`✅ Bot "${botId}" restarted!`, 'success');
+                UI.showMessage(`✅ Bot "${botId}" restarted successfully!`, 'success');
+                
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
                 await this.loadBots();
+                await this.loadStats();
             } else {
                 UI.showMessage(`❌ ${data.error}`, 'error');
             }
@@ -78,11 +108,16 @@ const BotManager = {
         
         if (!confirm(`⚠️ Remove bot "${botId}"?\n\nThis will:\n• Stop the bot\n• Delete all configurations\n• Remove all custom commands\n\nThis action cannot be undone.`)) return;
         
+        UI.showMessage(`🗑️ Removing bot "${botId}"...`, 'info');
+        
         try {
             const data = await API.removeBot(botId, password);
             
             if (data.success) {
-                UI.showMessage(`✅ Bot "${botId}" removed!`, 'success');
+                UI.showMessage(`✅ Bot "${botId}" removed successfully!`, 'success');
+                
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
                 await this.loadBots();
                 await this.loadStats();
             } else {
@@ -216,7 +251,6 @@ const AIGenerator = {
         btn.parentElement.disabled = true;
         
         try {
-            // Use Google Gemini 2.5 Flash AI (Free tier available)
             const GEMINI_API_KEY = 'AIzaSyDDqepLreAquC8jXZhUNjVe9N01UUlxiwQ'; // Get free key from https://makersuite.google.com/app/apikey
             
             const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
@@ -554,9 +588,15 @@ function closeManageModal() {
 }
 
 async function refreshAll() {
-    await BotManager.loadStats();
-    await BotManager.loadBots();
-    UI.showMessage('✅ Refreshed!', 'success');
+    try {
+        await Promise.all([
+            BotManager.loadStats(),
+            BotManager.loadBots()
+        ]);
+        UI.showMessage('✅ Data refreshed!', 'success');
+    } catch (error) {
+        UI.showMessage('❌ Refresh failed: ' + error.message, 'error');
+    }
 }
 
 // Initialize Application
@@ -569,10 +609,20 @@ document.addEventListener('DOMContentLoaded', () => {
     BotManager.loadStats();
     BotManager.loadBots();
     
-    // Auto-refresh every 5 seconds
-    autoRefreshInterval = setInterval(() => {
-        BotManager.loadStats();
-        BotManager.loadBots();
+    let isRefreshing = false;
+    
+    autoRefreshInterval = setInterval(async () => {
+        if (!isRefreshing) {
+            isRefreshing = true;
+            try {
+                await BotManager.loadStats();
+                await BotManager.loadBots();
+            } catch (error) {
+                console.error('Auto-refresh error:', error);
+            } finally {
+                isRefreshing = false;
+            }
+        }
     }, 5000);
     
     // Cleanup on page unload

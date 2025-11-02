@@ -82,7 +82,14 @@ const UI = {
     // Bots List Rendering
     renderBotsList(bots) {
         const botsList = document.getElementById('botsList');
+        
+        if (!Array.isArray(bots)) {
+            bots = [];
+        }
+        
         document.getElementById('botCount').textContent = bots.length;
+
+        botsList.innerHTML = '';
 
         if (bots.length === 0) {
             botsList.innerHTML = `
