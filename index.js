@@ -713,74 +713,86 @@ function monitorKeepAliveSystem(api) {
     }, 10 * 60 * 1000);
 }
 
-function handleMessage(api, event) {
-    const { body, threadID, messageID, senderID } = event;
-    
-    if (!body || typeof body !== 'string') return;
-    
-    if (!body.startsWith(CONFIG.prefix)) return;
-    
-    const args = body.slice(CONFIG.prefix.length).trim().split(/ +/);
-    const commandName = args.shift().toLowerCase();
-    
-    const command = commands.get(commandName);
-    
-    if (!command) return;
-    
+async function handleMessage(api, event) {
     try {
-        console.log(`⚡ Command: ${commandName} | User: ${senderID} | Thread: ${threadID}`);
+        const { body, threadID, messageID, senderID } = event;
         
-        command.execute(api, event, args, CONFIG);
-    } catch (error) {
-        console.error(`Error executing command ${commandName}:`, error);
-        api.sendMessage(`❌ Error executing command: ${error.message}`, threadID, messageID);
+        if (!body || typeof body !== 'string') return;
+        
+        if (!body.startsWith(CONFIG.prefix)) return;
+        
+        const args = body.slice(CONFIG.prefix.length).trim().split(/ +/);
+        const commandName = args.shift().toLowerCase();
+        
+        const command = commands.get(commandName);
+        
+        if (!command) return;
+        
+        try {
+            console.log(`⚡ Command: ${commandName} | User: ${senderID} | Thread: ${threadID}`);
+            
+            await command.execute(api, event, args, CONFIG);
+        } catch (error) {
+            console.error(`Error executing command ${commandName}:`, error);
+            try {
+                api.sendMessage(`❌ Error executing command: ${error.message}`, threadID, messageID);
+            } catch (sendErr) {
+                console.error(`Could not send error message:`, sendErr.message);
+            }
+        }
+    } catch (outerError) {
+        console.error(`Critical error in handleMessage:`, outerError);
     }
 }
 
-function handleMessageMulti(botId, bot, event) {
-    if (!bot || !bot.api || bot.status === 'offline') {
-        console.log(`⚠️ Ignoring message for removed/offline bot: ${botId}`);
-        return;
-    }
-    
-    const { body, threadID, messageID, senderID } = event;
-    
-    if (!body || typeof body !== 'string') return;
-    
-    if (!body.startsWith(CONFIG.prefix)) return;
-    
-    const args = body.slice(CONFIG.prefix.length).trim().split(/ +/);
-    const commandName = args.shift().toLowerCase();
-    
-    let command = null;
-    if (botCommands.has(botId)) {
-        command = botCommands.get(botId).get(commandName);
-    }
-    
-    if (!command) {
-        command = commands.get(commandName);
-    }
-    
-    if (!command) return;
-    
+async function handleMessageMulti(botId, bot, event) {
     try {
-        console.log(`⚡ [${botId}] Command: ${commandName} | User: ${senderID} | Thread: ${threadID}`);
-        
-        if (!bot.api) {
-            console.log(`⚠️ Bot ${botId} API is null, skipping command execution`);
+        if (!bot || !bot.api || bot.status === 'offline') {
+            console.log(`⚠️ Ignoring message for removed/offline bot: ${botId}`);
             return;
         }
         
-        command.execute(bot.api, event, args, CONFIG);
-    } catch (error) {
-        console.error(`[${botId}] Error executing command ${commandName}:`, error);
-        if (bot.api && typeof bot.api.sendMessage === 'function') {
-            try {
-                bot.api.sendMessage(`❌ Error: ${error.message}`, threadID, messageID);
-            } catch (sendErr) {
-                console.error(`[${botId}] Could not send error message:`, sendErr.message);
+        const { body, threadID, messageID, senderID } = event;
+        
+        if (!body || typeof body !== 'string') return;
+        
+        if (!body.startsWith(CONFIG.prefix)) return;
+        
+        const args = body.slice(CONFIG.prefix.length).trim().split(/ +/);
+        const commandName = args.shift().toLowerCase();
+        
+        let command = null;
+        if (botCommands.has(botId)) {
+            command = botCommands.get(botId).get(commandName);
+        }
+        
+        if (!command) {
+            command = commands.get(commandName);
+        }
+        
+        if (!command) return;
+        
+        try {
+            console.log(`⚡ [${botId}] Command: ${commandName} | User: ${senderID} | Thread: ${threadID}`);
+            
+            if (!bot.api) {
+                console.log(`⚠️ Bot ${botId} API is null, skipping command execution`);
+                return;
+            }
+            
+            await command.execute(bot.api, event, args, CONFIG);
+        } catch (error) {
+            console.error(`[${botId}] Error executing command ${commandName}:`, error);
+            if (bot.api && typeof bot.api.sendMessage === 'function') {
+                try {
+                    bot.api.sendMessage(`❌ Error: ${error.message}`, threadID, messageID);
+                } catch (sendErr) {
+                    console.error(`[${botId}] Could not send error message:`, sendErr.message);
+                }
             }
         }
+    } catch (outerError) {
+        console.error(`[${botId}] Critical error in handleMessageMulti:`, outerError);
     }
 }
 
